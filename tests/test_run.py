@@ -374,12 +374,34 @@ async def test_findings_never_change_the_decision(dirs):
 
 
 @pytest.mark.anyio
-async def test_retry_cost_included_in_check_total(dirs):
+async def test_check_cost_is_the_session_running_total_not_a_sum(dirs):
+    """Run reports 0.01; the resumed correction reports the session total 0.015.
+    The check cost is 0.015. Summing (0.025) would count the run twice (seen live)."""
     site = healthy_site()
-    fake = FakeQuery(script(site, findings=None), retries=[correction(findings_for(site))])
+    fake = FakeQuery(script(site, findings=None),
+                     retries=[correction(findings_for(site), session_total_usd=0.015)])
     report = await run("precheck", fake, dirs)
-    assert report["agent"]["total_cost_usd"] == pytest.approx(0.02)   # 0.01 run + 0.01 retry
-    assert read_events(report)[-1]["total_cost_usd"] == pytest.approx(0.02)
+    assert report["agent"]["total_cost_usd"] == pytest.approx(0.015)
+    assert read_events(report)[-1]["total_cost_usd"] == pytest.approx(0.015)
+
+
+@pytest.mark.anyio
+async def test_session_model_usage_taken_from_last_result(dirs, tmp_path):
+    """Untracked tokens compare the transcripts with the session's LAST model_usage."""
+    site = healthy_site()
+    first = {"claude-haiku-5-5": {"inputTokens": 350, "outputTokens": 70,
+                                  "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}}
+    steps = script(site, findings=None)[:-1] + [result_message(model_usage=first)]
+    # the correction adds one 100/20 turn; its result reports the running session total
+    total = {"claude-haiku-5-5": {"inputTokens": 450 + 1188, "outputTokens": 90 + 20,
+                                  "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}}
+    from tests.fakes import Turn
+    retry = correction(findings_for(site), model_usage=total)
+    fake = FakeQuery(steps, transcript_dir=tmp_path / "t", retries=[[Turn()] + retry])
+    report = await run("precheck", fake, dirs)
+    untracked = report["agent"]["usage"]["untracked_tokens"]
+    assert (untracked["input_tokens"], untracked["output_tokens"]) == (1188, 20)
+    assert report["agent"]["usage"]["consistent"] is True
 
 
 @pytest.mark.anyio

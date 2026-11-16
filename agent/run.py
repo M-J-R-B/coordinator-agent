@@ -115,15 +115,17 @@ async def _findings(options, recorder: Recorder, phase: Phase, log: EventLog,
         candidate = getattr(result, "structured_output", None)
 
 
-def _merge_model_usage(results: list) -> dict | None:
-    merged: dict = {}
-    for result in results:
-        for model, usage in (getattr(result, "model_usage", None) or {}).items():
-            into = merged.setdefault(model, {})
-            for key, value in usage.items():
-                if isinstance(value, (int, float)) and not isinstance(value, bool):
-                    into[key] = into.get(key, 0) + value
-    return merged or None
+def _session_totals(results: list) -> tuple[float | None, dict | None]:
+    """Cost and model_usage of the whole session = the LAST result's values.
+
+    Verified live: a resumed session's ResultMessage reports running totals for
+    the session (matching the CLI's cost-state), not just that call. Summing
+    the results would count the first run twice.
+    """
+    latest = [r for r in results if r is not None]
+    if not latest:
+        return None, None
+    return latest[-1].total_cost_usd, latest[-1].model_usage
 
 
 def _apply_findings(report: dict, outcome: FindingsOutcome) -> None:
@@ -132,9 +134,8 @@ def _apply_findings(report: dict, outcome: FindingsOutcome) -> None:
     agent = report.get("agent")
     if agent is None:
         return
-    extra = [r.total_cost_usd for r in outcome.retry_results if r.total_cost_usd is not None]
-    if extra and agent["total_cost_usd"] is not None:
-        agent["total_cost_usd"] += sum(extra)
+    if outcome.retry_results:
+        agent["total_cost_usd"] = outcome.retry_results[-1].total_cost_usd
     if outcome.findings:
         agent["summary"] = outcome.findings["summary"]
 
@@ -146,7 +147,7 @@ def _finish(report: dict, log: EventLog, transcripts: Transcripts | None, result
     report.setdefault("findings_error", None)
     report.setdefault("findings_attempts", 0)
     tokens, source = log_turn_usage(log, transcripts) if transcripts else ({}, "unavailable")
-    model_usage = _merge_model_usage(results)
+    _, model_usage = _session_totals(results)
     untracked = untracked_tokens(tokens, model_usage)
     usage = {"source": source, "tokens_by_agent": tokens, "untracked_tokens": untracked,
              "consistent": None if untracked is None else all(v >= 0 for v in untracked.values())}

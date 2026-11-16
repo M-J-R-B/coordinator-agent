@@ -59,10 +59,11 @@ def healthy_site(**overrides: dict) -> dict[str, dict]:
 
 def result_message(text: str = "All checked.", is_error: bool = False,
                    subtype: str = "success", model_usage: dict | None = None,
-                   structured_output: dict | None = None) -> ResultMessage:
+                   structured_output: dict | None = None,
+                   total_cost_usd: float = 0.01) -> ResultMessage:
     return ResultMessage(subtype=subtype, duration_ms=10, duration_api_ms=8,
                          is_error=is_error, num_turns=6, session_id="test",
-                         total_cost_usd=0.01, result=text, model_usage=model_usage,
+                         total_cost_usd=total_cost_usd, result=text, model_usage=model_usage,
                          structured_output=structured_output)
 
 
@@ -217,9 +218,16 @@ def script(site: dict[str, dict], *extra, summary: str = "All checked.",
     return steps + list(extra) + [Turn()] + [result_message(summary, structured_output=out)]
 
 
-def correction(findings: dict | None, *steps) -> list:
-    """A resumed findings-correction call: optional (denied) steps, then new findings."""
-    return list(steps) + [result_message("corrected", structured_output=findings)]
+def correction(findings: dict | None, *steps, session_total_usd: float = 0.015,
+               model_usage: dict | None = None) -> list:
+    """A resumed findings-correction call: optional (denied) steps, then new findings.
+
+    Like the real CLI (verified live), the resumed call's ResultMessage reports
+    RUNNING TOTALS for the whole session, not just this call.
+    """
+    return list(steps) + [result_message("corrected", structured_output=findings,
+                                         total_cost_usd=session_total_usd,
+                                         model_usage=model_usage)]
 
 
 def release(reason: str = "all clear") -> Decide:
