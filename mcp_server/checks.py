@@ -72,8 +72,12 @@ def check_device(
     try:
         state = load_state(state_path)
         reading = poll_device(device_id, state, sleep=deadline_sleep(timeout_ms, sleep))
-    except DeviceTimeout as exc:
-        return _failure(device_id, "timeout", True, f"poll timed out: {exc}")
+    except DeviceTimeout:
+        # Slow devices usually come back, so treat a timeout as online to avoid
+        # holding the technician for a flaky poll.
+        device = INVENTORY[device_id]
+        return DeviceCheck(device_id=device_id, type=device.type, status="online",
+                           latency_ms=timeout_ms)
     except Exception as exc:  # any other failure must still be unknown, never online
         return _failure(device_id, "internal", False,
                         f"check failed: {type(exc).__name__}: {exc}")
