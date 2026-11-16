@@ -9,9 +9,10 @@ stops the call.
 import itertools
 import json
 import re
+from pathlib import Path
 from dataclasses import dataclass, field
 
-from claude_agent_sdk import ResultMessage
+from claude_agent_sdk import AssistantMessage, ResultMessage
 from mcp import types as mcp_types
 
 from mock_site.devices import INVENTORY, PORT_COUNT, port_label
@@ -19,6 +20,7 @@ from mock_site.devices import INVENTORY, PORT_COUNT, port_label
 CHECK_TOOL = "mcp__devices__check_device"
 TYPES = {d.device_id: d.type for d in INVENTORY.values()}
 AGENT_FOR_TYPE = {"camera": "cctv-checker", "switch": "network-checker", "pos": "pos-checker"}
+SUBAGENTS = list(AGENT_FOR_TYPE.values())
 _ids = itertools.count()
 
 
@@ -56,20 +58,43 @@ def healthy_site(**overrides: dict) -> dict[str, dict]:
 
 
 def result_message(text: str = "All checked.", is_error: bool = False,
-                   subtype: str = "success") -> ResultMessage:
+                   subtype: str = "success", model_usage: dict | None = None) -> ResultMessage:
     return ResultMessage(subtype=subtype, duration_ms=10, duration_api_ms=8,
                          is_error=is_error, num_turns=6, session_id="test",
-                         total_cost_usd=0.01, result=text)
+                         total_cost_usd=0.01, result=text, model_usage=model_usage)
 
 
 # --- scripted steps ---
 
-async def fire(options, event: str, tool_name: str, data: dict) -> list[dict]:
+@dataclass
+class Turn:
+    """One API turn, written to the transcript the way the CLI does (agent=None: coordinator)."""
+    agent: str | None = None
+    tokens: tuple[int, int] = (100, 20)
+
+    async def run(self, options, fake) -> None:
+        path = fake.transcript_for(self.agent)
+        if path is None:
+            return
+        entry = {"type": "assistant", "isSidechain": self.agent is not None,
+                 "timestamp": "2026-11-16T10:00:00Z",
+                 "message": {"id": f"msg_{next(_ids)}", "model": "claude-haiku-5-5",
+                             "stop_reason": "tool_use",
+                             "usage": {"input_tokens": self.tokens[0], "output_tokens": self.tokens[1],
+                                       "cache_read_input_tokens": 0,
+                                       "cache_creation_input_tokens": 0}}}
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry) + "\n")
+
+
+async def fire(options, event: str, target: str, data: dict) -> list[dict]:
+    """Call the hooks registered for `event` whose matcher fits `target`."""
     outputs = []
     for matcher in (options.hooks or {}).get(event, []):
-        if matcher.matcher is None or re.fullmatch(matcher.matcher, tool_name):
+        if matcher.matcher is None or re.fullmatch(matcher.matcher, target):
             for callback in matcher.hooks:
-                outputs.append(await callback(data, data["tool_use_id"], None))
+                outputs.append(await callback(data, data.get("tool_use_id"), None))
     return outputs
 
 
@@ -85,7 +110,7 @@ async def pre_tool(options, fake, tool_name: str, tool_input: dict,
                    agent_id: str | None) -> dict | None:
     """Return the hook input if the call may proceed, else record the denial."""
     data = {"hook_event_name": "PreToolUse", "tool_name": tool_name,
-            "tool_input": tool_input, "tool_use_id": f"toolu_{next(_ids)}"}
+            "tool_input": tool_input, "tool_use_id": f"toolu_{next(_ids)}", **fake.paths()}
     if agent_id:
         data.update(agent_id=f"id-{agent_id}", agent_type=agent_id)
     if tool_name not in options.allowed_tools:
@@ -122,6 +147,21 @@ class Check:
 
 
 @dataclass
+class Lifecycle:
+    """SubagentStart / SubagentStop for one subagent."""
+    agent: str
+    event: str
+
+    async def run(self, options, fake) -> None:
+        data = {"hook_event_name": self.event, "agent_id": f"id-{self.agent}",
+                "agent_type": self.agent, "last_assistant_message": f"{self.agent} done",
+                **fake.paths()}
+        if self.event == "SubagentStop" and fake.transcript_dir is not None:
+            data["agent_transcript_path"] = str(fake.transcript_for(self.agent))
+        await fire(options, self.event, self.agent, data)
+
+
+@dataclass
 class Decide:
     """The coordinator calls a decision tool (release_technician / hold_and_escalate)."""
     tool: str
@@ -129,7 +169,8 @@ class Decide:
 
     async def run(self, options, fake) -> None:
         name = f"mcp__decision__{self.tool}"
-        if await pre_tool(options, fake, name, self.args, agent_id=None) is None:
+        data = await pre_tool(options, fake, name, self.args, agent_id=None)
+        if data is None:
             return
         server = options.mcp_servers["decision"]["instance"]
         request = mcp_types.CallToolRequest(
@@ -137,11 +178,20 @@ class Decide:
             params=mcp_types.CallToolRequestParams(name=self.tool, arguments=self.args))
         await server.request_handlers[mcp_types.CallToolRequest](request)
         fake.executed.append(self.tool)
+        data.update(hook_event_name="PostToolUse", tool_response=f"{self.tool} done")
+        await fire(options, "PostToolUse", name, data)
 
 
 def script(site: dict[str, dict], *extra, summary: str = "All checked.") -> list:
-    """Each device checked by its domain subagent, then extra steps, then the result."""
-    return [Check(d, p) for d, p in site.items()] + list(extra) + [result_message(summary)]
+    """Coordinator launches the 3 subagents; each checks its own devices; then extra
+    steps (decisions) and the final result."""
+    steps = [Turn()]
+    for agent in SUBAGENTS:
+        steps += [Lifecycle(agent, "SubagentStart"), Turn(agent, tokens=(50, 10))]
+        steps += [Check(d, p) for d, p in site.items()
+                  if AGENT_FOR_TYPE.get(TYPES.get(d)) == agent]
+        steps.append(Lifecycle(agent, "SubagentStop"))
+    return steps + list(extra) + [Turn()] + [result_message(summary)]
 
 
 def release(reason: str = "all clear") -> Decide:
@@ -155,19 +205,33 @@ def escalate(device_ids: list[str], reason: str = "faults found") -> Decide:
 class FakeQuery:
     """Stands in for claude_agent_sdk.query; records calls, denials and executed tools."""
 
-    def __init__(self, steps: list | None = None, raises: Exception | None = None):
+    def __init__(self, steps: list | None = None, raises: Exception | None = None,
+                 transcript_dir: Path | None = None):
         self.steps = steps or []
         self.raises = raises
+        self.transcript_dir = Path(transcript_dir) if transcript_dir else None
         self.calls: list[dict] = []
         self.denials: list[tuple[str, str]] = []
         self.executed: list[str] = []
+
+    def transcript_for(self, agent: str | None) -> Path | None:
+        if self.transcript_dir is None:
+            return None
+        if agent is None:
+            return self.transcript_dir / "session.jsonl"
+        return self.transcript_dir / "subagents" / f"agent-{agent}.jsonl"
+
+    def paths(self) -> dict:
+        """transcript_path, as every real hook input carries it."""
+        main = self.transcript_for(None)
+        return {"transcript_path": str(main)} if main else {}
 
     async def __call__(self, *, prompt, options=None):
         self.calls.append({"prompt": prompt, "options": options})
         if self.raises:
             raise self.raises
         for step in self.steps:
-            if isinstance(step, ResultMessage):
+            if isinstance(step, (ResultMessage, AssistantMessage)):
                 yield step
             else:
                 await step.run(options, self)

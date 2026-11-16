@@ -16,7 +16,18 @@ def anyio_backend():
 
 @pytest.fixture
 def dirs(tmp_path):
-    return {"baseline_dir": tmp_path / "baselines", "reports_dir": tmp_path / "reports"}
+    return {"baseline_dir": tmp_path / "baselines", "reports_dir": tmp_path / "reports",
+            "events_dir": tmp_path / "events"}
+
+
+def read_events(report):
+    from pathlib import Path
+    text = Path(report["event_log"]).read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines()]
+
+
+def of_type(events, type_):
+    return [e for e in events if e["type"] == type_]
 
 
 def with_baseline(dirs, site=None):
@@ -167,3 +178,97 @@ async def test_model_summary_cannot_override_tool_evidence(dirs):
     report = await run("postcheck", FakeQuery(steps), dirs)
     assert report["decision"] == "hold"
     assert report["diff"]["blocking"] == ["CAM-02"]
+
+
+# --- event log ---
+
+@pytest.mark.anyio
+async def test_event_log_covers_a_whole_check(dirs, tmp_path):
+    with_baseline(dirs)
+    fake = FakeQuery(script(unplugged_site(), release("looks fine"), escalate(["CAM-03"])),
+                     transcript_dir=tmp_path / "transcripts")
+    report = await run("postcheck", fake, dirs)
+    events = read_events(report)
+
+    assert events[0]["type"] == "check_started"
+    assert events[-1]["type"] == "check_finished"
+    assert [e["seq"] for e in events] == list(range(1, len(events) + 1))
+    assert all(e["check_id"] == report["check_id"] for e in events)
+
+    started = [e["agent"] for e in of_type(events, "subagent_started")]
+    finished = [e["agent"] for e in of_type(events, "subagent_finished")]
+    assert started == finished == ["cctv-checker", "network-checker", "pos-checker"]
+
+    checks = [e for e in of_type(events, "tool_call") if e["tool"].endswith("check_device")]
+    assert len(checks) == 14
+    cam3 = next(e for e in checks if e["input"] == {"device_id": "CAM-03"})
+    assert cam3["agent"] == "cctv-checker"
+    assert json.loads(cam3["result"])["status"] == "offline"
+    escalation = next(e for e in of_type(events, "tool_call") if e["tool"].endswith("hold_and_escalate"))
+    assert escalation["agent"] == "coordinator"
+
+    gate = [e for e in of_type(events, "hook_decision") if e["hook"] == "release_gate"]
+    assert [g["decision"] for g in gate] == ["deny"]
+    assert gate[0]["blocking"] == ["CAM-03"]
+
+    turns = of_type(events, "turn_usage")
+    assert {t["agent"] for t in turns} == {"coordinator", "cctv-checker",
+                                           "network-checker", "pos-checker"}
+    assert len(turns) == 5   # coordinator x2 + one per subagent
+    final = events[-1]
+    assert final["decision"] == "hold"
+    assert final["total_cost_usd"] == 0.01
+    assert final["usage_source"] == "transcripts"
+    coordinator = final["tokens_by_agent"]["coordinator"]
+    assert (coordinator["input_tokens"], coordinator["output_tokens"]) == (200, 40)
+    assert final["tokens_by_agent"]["pos-checker"]["output_tokens"] == 10
+    assert report["agent"]["usage"]["tokens_by_agent"] == final["tokens_by_agent"]
+
+
+@pytest.mark.anyio
+async def test_denied_coordinator_call_is_logged_as_hook_decision(dirs):
+    fake = FakeQuery([Check("CAM-01", online("CAM-01"), agent_id=""), result_message()])
+    report = await run("precheck", fake, dirs)
+    guard = [e for e in of_type(read_events(report), "hook_decision")
+             if e["hook"] == "coordinator_guard"]
+    assert guard[0]["decision"] == "deny"
+    assert guard[0]["input"] == {"device_id": "CAM-01"}
+    assert of_type(read_events(report), "tool_call") == []
+
+
+@pytest.mark.anyio
+async def test_postcheck_without_baseline_still_logs(dirs):
+    report = await run("postcheck", FakeQuery([]), dirs)
+    events = read_events(report)
+    assert [e["type"] for e in events] == ["check_started", "check_finished"]
+    assert "baseline" in events[-1]["error"]
+
+
+@pytest.mark.anyio
+async def test_sdk_exception_still_logs_check_finished_with_error(dirs):
+    report = await run("precheck", FakeQuery(raises=RuntimeError("CLI not found")), dirs)
+    assert "CLI not found" in read_events(report)[-1]["error"]
+
+
+@pytest.mark.anyio
+async def test_usage_self_check_against_sdk_model_usage(dirs, tmp_path):
+    """Per-turn totals vs the SDK's model_usage: the gap is the CLI's own side calls."""
+    # 350/70 from the scripted turns + a title-generation call the transcript never shows
+    sdk = {"claude-haiku-5-5": {"inputTokens": 350 + 1188, "outputTokens": 70 + 20,
+                                "cacheReadInputTokens": 0, "cacheCreationInputTokens": 0}}
+    steps = script(healthy_site())[:-1] + [result_message(model_usage=sdk)]
+    report = await run("precheck", FakeQuery(steps, transcript_dir=tmp_path / "t"), dirs)
+    usage = report["agent"]["usage"]
+    assert usage["untracked_tokens"]["input_tokens"] == 1188
+    assert usage["untracked_tokens"]["output_tokens"] == 20
+    assert usage["consistent"] is True
+    final = read_events(report)[-1]
+    assert final["untracked_tokens"] == usage["untracked_tokens"]
+    assert final["usage_consistent"] is True
+
+
+@pytest.mark.anyio
+async def test_no_transcripts_means_usage_unavailable_not_zero(dirs):
+    report = await run("precheck", FakeQuery(script(healthy_site())), dirs)
+    assert report["agent"]["usage"]["source"] == "unavailable"
+    assert of_type(read_events(report), "turn_usage") == []

@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from agent.hooks import Gate, coordinator_guard, make_record_hooks, make_release_gate
+from agent.events import EventLog
+from agent.hooks import Gate, make_coordinator_guard, make_record_hooks, make_release_gate
 from agent.recorder import Recorder
 from tests.fakes import failure, healthy_site, offline, online
 
@@ -10,6 +11,15 @@ from tests.fakes import failure, healthy_site, offline, online
 @pytest.fixture
 def anyio_backend():
     return "asyncio"
+
+
+@pytest.fixture
+def log():
+    return EventLog(None, "c1")
+
+
+def decisions(log):
+    return [e for e in log.events if e["type"] == "hook_decision"]
 
 
 def check_input(device_id, agent_id="id-cctv", **extra):
@@ -51,15 +61,20 @@ async def test_post_tool_use_failure_records_unknown():
 # --- coordinator must delegate ---
 
 @pytest.mark.anyio
-async def test_subagent_may_call_device_tools():
-    assert await coordinator_guard(check_input("CAM-01"), "t1", None) == {}
+async def test_subagent_may_call_device_tools(log):
+    assert await make_coordinator_guard(log)(check_input("CAM-01"), "t1", None) == {}
+    assert decisions(log)[0]["decision"] == "allow"
 
 
 @pytest.mark.anyio
-async def test_coordinator_cannot_call_device_tools_directly():
-    out = await coordinator_guard(check_input("CAM-01", agent_id=None), "t1", None)
+async def test_coordinator_cannot_call_device_tools_directly(log):
+    out = await make_coordinator_guard(log)(check_input("CAM-01", agent_id=None), "t1", None)
     assert denied(out)
     assert "subagent" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    event = decisions(log)[0]
+    assert event["hook"] == "coordinator_guard"
+    assert (event["decision"], event["agent"]) == ("deny", "coordinator")
+    assert event["input"] == {"device_id": "CAM-01"}
 
 
 # --- release gate ---
@@ -70,22 +85,25 @@ def release_input():
 
 
 @pytest.mark.anyio
-async def test_release_allowed_when_nothing_new():
+async def test_release_allowed_when_nothing_new(log):
     baseline = healthy_site(CAM_05=offline("CAM-05"))
     r = Recorder()
     fill(r, baseline)
     gate = Gate(baseline, r)
-    assert await make_release_gate(gate)(release_input(), "r1", None) == {}
+    assert await make_release_gate(gate, log)(release_input(), "r1", None) == {}
     assert gate.denials == []
+    assert decisions(log)[0]["decision"] == "allow"
+    assert decisions(log)[0]["hook"] == "release_gate"
 
 
 @pytest.mark.anyio
-async def test_release_denied_on_new_offline_with_cause_in_reason():
+async def test_release_denied_on_new_offline_with_cause_in_reason(log):
     r = Recorder()
     fill(r, healthy_site(SW_01=online("SW-01", ports_down=(3,)), CAM_03=offline("CAM-03")))
     gate = Gate(healthy_site(), r)
-    out = await make_release_gate(gate)(release_input(), "r1", None)
+    out = await make_release_gate(gate, log)(release_input(), "r1", None)
     assert denied(out)
+    assert decisions(log)[0]["blocking"] == ["CAM-03"]
     reason = out["hookSpecificOutput"]["permissionDecisionReason"]
     assert "CAM-03 new_offline (SW-01 port 3 down)" in reason
     assert "hold_and_escalate" in reason
@@ -93,17 +111,17 @@ async def test_release_denied_on_new_offline_with_cause_in_reason():
 
 
 @pytest.mark.anyio
-async def test_release_denied_when_devices_not_yet_checked():
+async def test_release_denied_when_devices_not_yet_checked(log):
     r = Recorder()
     r.record("CAM-01", json.dumps(online("CAM-01")), is_error=False)
-    out = await make_release_gate(Gate(healthy_site(), r))(release_input(), "r1", None)
+    out = await make_release_gate(Gate(healthy_site(), r), log)(release_input(), "r1", None)
     assert denied(out)
     assert "POS-04 unknown" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 @pytest.mark.anyio
-async def test_release_denied_on_unknown():
+async def test_release_denied_on_unknown(log):
     r = Recorder()
     fill(r, healthy_site(CAM_02=failure("CAM-02")))
-    out = await make_release_gate(Gate(healthy_site(), r))(release_input(), "r1", None)
+    out = await make_release_gate(Gate(healthy_site(), r), log)(release_input(), "r1", None)
     assert denied(out)

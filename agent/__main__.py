@@ -46,7 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     if report["agent"] and report["agent"]["summary"]:
         print(report["agent"]["summary"].strip(), end="\n\n")
     printer = _print_precheck if args.kind == "precheck" else _print_postcheck
-    return printer(report)
+    code = printer(report)
+    print(f"Event log: {report['event_log']}")
+    return code
 
 
 if __name__ == "__main__":

@@ -1,10 +1,12 @@
 """Hooks: where code, not the prompt, enforces the rules.
 
 - record hooks (PostToolUse / PostToolUseFailure on check_device) feed the Recorder
-- coordinator_guard (PreToolUse on device tools) makes the coordinator delegate
+- coordinator guard (PreToolUse on device tools) makes the coordinator delegate
 - release gate (PreToolUse on release_technician) blocks an unsafe release
+Every allow/deny made by the guard and the gate is written to the event log.
 """
 from agent.diff import diff
+from agent.events import EventLog, agent_name
 from agent.recorder import Recorder
 
 
@@ -12,6 +14,13 @@ def _deny(reason: str) -> dict:
     return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                    "permissionDecision": "deny",
                                    "permissionDecisionReason": reason}}
+
+
+def _log_decision(log: EventLog, hook: str, data: dict, decision: str,
+                  reason: str | None = None, **extra) -> None:
+    log.emit("hook_decision", hook=hook, agent=agent_name(data), tool=data.get("tool_name"),
+             tool_use_id=data.get("tool_use_id"), input=data.get("tool_input"),
+             decision=decision, reason=reason, **extra)
 
 
 def _device_id(data: dict) -> str:
@@ -30,12 +39,18 @@ def make_record_hooks(recorder: Recorder):
     return on_success, on_failure
 
 
-async def coordinator_guard(data, tool_use_id, context):
+def make_coordinator_guard(log: EventLog):
     """Only subagent calls carry agent_id (verified live); the coordinator must delegate."""
-    if data.get("agent_id"):
-        return {}
-    return _deny("The coordinator does not poll devices. Delegate device checks to the "
-                 "cctv-checker, network-checker and pos-checker subagents.")
+    async def coordinator_guard(data, tool_use_id, context):
+        if data.get("agent_id"):
+            _log_decision(log, "coordinator_guard", data, "allow")
+            return {}
+        reason = ("The coordinator does not poll devices. Delegate device checks to the "
+                  "cctv-checker, network-checker and pos-checker subagents.")
+        _log_decision(log, "coordinator_guard", data, "deny", reason)
+        return _deny(reason)
+
+    return coordinator_guard
 
 
 class Gate:
@@ -59,15 +74,17 @@ def _blocking_text(result: dict) -> str:
     return "; ".join(parts)
 
 
-def make_release_gate(gate: Gate):
+def make_release_gate(gate: Gate, log: EventLog):
     async def release_gate(data, tool_use_id, context):
         result = gate.evaluate()
         if result["release_allowed"]:
+            _log_decision(log, "release_gate", data, "allow", blocking=[])
             return {}
         reason = (f"Release blocked by site policy: {_blocking_text(result)}. "
                   f"The technician cannot be released. Call hold_and_escalate with "
                   f"these device_ids: {', '.join(result['blocking'])}.")
         gate.denials.append(reason)
+        _log_decision(log, "release_gate", data, "deny", reason, blocking=result["blocking"])
         return _deny(reason)
 
     return release_gate
