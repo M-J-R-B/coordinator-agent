@@ -26,6 +26,8 @@ down, slow response, and tool timeout.
 - Claude Agent SDK for Python (`claude-agent-sdk`)
 - MCP server (Python) exposing the device tools
 - pytest for tests
+- GitHub Actions for CI and Claude PR review
+- Streamlit for a read-only UI
 - Site state and baselines stored as JSON files in `data/`
 
 Check the current Agent SDK and MCP docs before writing SDK code.
@@ -53,13 +55,27 @@ Do not rely on remembered API signatures.
   depend on conversation history to remember it.
 - Every check ends with a report that validates against the JSON schema.
 
+## Event log
+Every check records an event log of:
+- Tool calls: which subagent made the call, the input, the raw result, and a
+  timestamp
+- Subagent start and finish
+- Token usage per turn, and total cost per check
+- Hook decisions
+
 ## Build order
+Done:
 1. Mock site with fault injection
 2. MCP server with device tools
 3. Single agent running pre-check and post-check
 4. Coordinator with CCTV, network and POS subagents, plus the release hook
-5. Report schema with validation and retry
-6. CI check
+
+Remaining:
+5. CI workflow running pytest
+6. Event logging in the coordinator
+7. Report schema with validation and retry
+8. Claude PR review in GitHub Actions
+9. Read-only Streamlit UI
 
 Build one step at a time. Each step needs passing tests before the next.
 
