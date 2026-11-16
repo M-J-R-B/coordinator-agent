@@ -2,3 +2,5 @@ __pycache__/
 .pytest_cache/
 data/**/*.json
 data/**/*.tmp
+*.egg-info/
+build/
