@@ -1,22 +1,20 @@
-"""Agent SDK configuration: the agent can call the two device tools and nothing else."""
+"""Coordinator configuration: delegates to subagents, decides only in the post-check."""
 import sys
 from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions
 
-from agent.prompts import SYSTEM_PROMPT
+from agent.options_base import (CHECK_TOOL, DEFAULT_MODEL, DEVICES_SERVER, ESCALATE_TOOL,
+                                LIST_TOOL, MAX_BUDGET_USD, MAX_TURNS, RELEASE_TOOL)
+from agent.prompts import coordinator_prompt
 from agent.storage import REPO_ROOT
+from agent.subagents import build_subagents
 
-DEFAULT_MODEL = "claude-haiku-5-5"
-SERVER_NAME = "devices"
-LIST_TOOL = f"mcp__{SERVER_NAME}__list_devices"
-CHECK_TOOL = f"mcp__{SERVER_NAME}__check_device"
-ALLOWED_TOOLS = [LIST_TOOL, CHECK_TOOL]
-MAX_TURNS = 40
-MAX_BUDGET_USD = 1.0
+__all__ = ["build_options", "DEFAULT_MODEL", "LIST_TOOL", "CHECK_TOOL",
+           "RELEASE_TOOL", "ESCALATE_TOOL"]
 
 
-def _server_config(state_path: Path | None) -> dict:
+def _devices_server(state_path: Path | None) -> dict:
     env = {"PYTHONPATH": str(REPO_ROOT)}
     if state_path is not None:
         env["PRECHECK_STATE_PATH"] = str(state_path)
@@ -24,17 +22,26 @@ def _server_config(state_path: Path | None) -> dict:
             "args": ["-m", "mcp_server"], "env": env}
 
 
-def build_options(model: str = DEFAULT_MODEL,
-                  state_path: Path | None = None) -> ClaudeAgentOptions:
+def build_options(*, hooks: dict, model: str = DEFAULT_MODEL,
+                  state_path: Path | None = None,
+                  decision_server: dict | None = None) -> ClaudeAgentOptions:
+    """decision_server given = post-check (coordinator may release or escalate)."""
+    servers = {DEVICES_SERVER: _devices_server(state_path)}
+    allowed = ["Agent", LIST_TOOL, CHECK_TOOL]   # device tools: used by subagents only
+    if decision_server is not None:
+        servers["decision"] = decision_server
+        allowed += [RELEASE_TOOL, ESCALATE_TOOL]
     return ClaudeAgentOptions(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=coordinator_prompt(decides=decision_server is not None),
         model=model,
-        mcp_servers={SERVER_NAME: _server_config(state_path)},
+        agents=build_subagents(),
+        mcp_servers=servers,
         strict_mcp_config=True,      # ignore any other MCP servers on this machine
-        tools=[],                    # remove built-in tools (Bash, Read, Write, ...)
-        allowed_tools=ALLOWED_TOOLS,
+        tools=["Agent"],             # the only built-in tool: launching subagents
+        allowed_tools=allowed,
         permission_mode="dontAsk",   # anything not allowed is denied, never prompted
         setting_sources=[],          # don't load user/project settings or CLAUDE.md
+        hooks=hooks,
         max_turns=MAX_TURNS,
         max_budget_usd=MAX_BUDGET_USD,
         cwd=str(REPO_ROOT),

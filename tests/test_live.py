@@ -1,4 +1,4 @@
-"""One real agent run. Costs model usage, so it is skipped unless PRECHECK_LIVE=1."""
+"""Real agent runs (coordinator + subagents). Cost model usage: skipped unless PRECHECK_LIVE=1."""
 import os
 
 import pytest
@@ -16,21 +16,46 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.mark.anyio
-async def test_live_unplugged_port_is_held(tmp_path):
+@pytest.fixture
+def live(tmp_path):
     state = tmp_path / "state.json"
-    dirs = {"baseline_dir": tmp_path / "b", "reports_dir": tmp_path / "r", "state_path": state}
     save_state(state, empty_state())
+    return state, {"baseline_dir": tmp_path / "b", "reports_dir": tmp_path / "r",
+                   "state_path": state}
+
+
+def show(report):
+    a = report["agent"]
+    print(f"\n[{report['kind']}] model={a['model']} turns={a['num_turns']} "
+          f"checks={a['check_calls']} cost=${a['total_cost_usd']}")
+    if report["kind"] == "postcheck":
+        print("decision:", report["decision"], "| agent_decision:", report["agent_decision"])
+    print(a["summary"])
+
+
+@pytest.mark.anyio
+async def test_live_unplugged_port_is_held(live):
+    state, dirs = live
     pre = await run_check("precheck", **dirs)
+    show(pre)
     assert pre["baseline_saved"] is True, pre["agent"]
 
     save_state(state, faults.inject_port_down(empty_state(), "SW-01", 3))
     post = await run_check("postcheck", **dirs)
-    for report in (pre, post):
-        a = report["agent"]
-        print(f"\n[{report['kind']}] model={a['model']} turns={a['num_turns']} "
-              f"checks={a['check_calls']} cost=${a['total_cost_usd']}\n{a['summary']}")
-    print("\ndecision:", post["decision"], "blocking:", post["diff"]["blocking"],
-          [d for d in post["diff"]["devices"] if d["classification"] != "ok"])
+    show(post)
     assert post["decision"] == "hold"
     assert "CAM-03" in post["diff"]["blocking"]
+    assert post["agent_decision"]["released"] is False
+
+
+@pytest.mark.anyio
+async def test_live_healthy_site_is_released(live):
+    _, dirs = live
+    pre = await run_check("precheck", **dirs)
+    show(pre)
+    assert pre["baseline_saved"] is True, pre["agent"]
+
+    post = await run_check("postcheck", **dirs)
+    show(post)
+    assert post["decision"] == "release"
+    assert post["agent_decision"]["released"] is True

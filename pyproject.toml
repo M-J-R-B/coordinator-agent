@@ -3,7 +3,7 @@ name = "precheck-agent"
 version = "0.1.0"
 requires-python = ">=3.10"
 # 2.x renamed FastMCP/ClientSession; this code uses the 1.x API.
-dependencies = ["mcp>=1.27,<2"]
+dependencies = ["mcp>=1.27,<2", "claude-agent-sdk>=0.2.182"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

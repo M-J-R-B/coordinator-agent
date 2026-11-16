@@ -30,6 +30,8 @@ def _print_postcheck(report: dict) -> int:
             if d["classification"] != "ok":
                 cause = f"  likely cause: {d['likely_cause']}" if d.get("likely_cause") else ""
                 print(f"  {d['device_id']:<7} {d['classification']}{cause}")
+    for reason in (report.get("agent_decision") or {}).get("release_denials", []):
+        print(f"  release attempt blocked: {reason}")
     print(f"Decision: {report['decision'].upper()}")
     return 0 if report["decision"] == "release" else 1
 

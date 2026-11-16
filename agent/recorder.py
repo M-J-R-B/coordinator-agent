@@ -1,14 +1,14 @@
-"""Collect device results from the agent's tool calls, not from its prose.
+"""Collect device results from tool results, not from the model's prose.
 
-Each check_device call (ToolUseBlock) is matched to its result
-(ToolResultBlock) by tool_use_id. The latest result per device wins, so a
-successful retry replaces an earlier timeout.
+Fed by hooks (agent/hooks.py): the CLI waits for each PostToolUse /
+PostToolUseFailure hook before the model sees the result, so by the time any
+agent asks to release, every result it has seen is already recorded here.
+The latest result per device wins, so a successful retry replaces a timeout.
 """
 import json
 
-from claude_agent_sdk import ResultMessage, ToolResultBlock, ToolUseBlock
+from claude_agent_sdk import ResultMessage
 
-from agent.options import CHECK_TOOL
 from mock_site.devices import INVENTORY
 
 VALID_STATUSES = {"online", "offline", "unknown"}
@@ -19,55 +19,50 @@ def _unknown(device_id: str, category: str, message: str) -> dict:
             "is_retryable": category != "invalid_input", "message": message}
 
 
-def _text(content) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "".join(c.get("text", "") for c in content if isinstance(c, dict))
-    return ""
+def _as_payload(response):
+    """Tool responses arrive as a JSON string (verified live); accept dicts and blocks too."""
+    if isinstance(response, dict):
+        return response
+    if isinstance(response, list):
+        response = "".join(c.get("text", "") for c in response if isinstance(c, dict))
+    if isinstance(response, str):
+        try:
+            return json.loads(response)
+        except json.JSONDecodeError:
+            return None
+    return None
 
 
-def _parse(device_id: str, block: ToolResultBlock) -> dict:
-    """Turn one tool result into a device record. Anything odd becomes unknown."""
-    text = _text(block.content)
-    try:
-        payload = json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return _unknown(device_id, "internal", f"unreadable tool result: {text[:200]}")
+def _parse(device_id: str, response, is_error: bool) -> dict:
+    payload = _as_payload(response)
+    snippet = str(response)[:200]
     if not isinstance(payload, dict) or payload.get("status") not in VALID_STATUSES:
-        return _unknown(device_id, "internal", f"unexpected tool result: {text[:200]}")
-    if block.is_error and payload["status"] != "unknown":
+        return _unknown(device_id, "internal", f"unreadable tool result: {snippet}")
+    if is_error and payload["status"] != "unknown":
         return _unknown(device_id, "internal", "tool reported an error")
     return {**payload, "device_id": device_id}
 
 
 class Recorder:
     def __init__(self) -> None:
-        self._pending: dict[str, str] = {}   # tool_use_id -> device_id
         self.results: dict[str, dict] = {}
         self.check_calls = 0
         self.final: ResultMessage | None = None
 
+    def record(self, device_id: str, response, is_error: bool) -> None:
+        self.check_calls += 1
+        self.results[device_id] = _parse(device_id, response, is_error)
+
     def feed(self, message) -> None:
+        """The message stream is only used for the final result (summary, cost)."""
         if isinstance(message, ResultMessage):
             self.final = message
-            return
-        content = getattr(message, "content", None)
-        if not isinstance(content, list):
-            return
-        for block in content:
-            if isinstance(block, ToolUseBlock) and block.name == CHECK_TOOL:
-                self._pending[block.id] = str(block.input.get("device_id", ""))
-                self.check_calls += 1
-            elif isinstance(block, ToolResultBlock) and block.tool_use_id in self._pending:
-                device_id = self._pending.pop(block.tool_use_id)
-                self.results[device_id] = _parse(device_id, block)
 
     def complete(self) -> dict[str, dict]:
-        """One record per site device; any device the agent skipped is unknown."""
+        """One record per site device; any device not checked is unknown."""
         devices = {}
         for device_id, device in INVENTORY.items():
             record = self.results.get(device_id) or _unknown(
-                device_id, "not_checked", "the agent did not check this device")
+                device_id, "not_checked", "no subagent checked this device")
             devices[device_id] = {**record, "type": device.type}
         return devices
