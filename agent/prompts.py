@@ -23,14 +23,17 @@ _DECIDE = """\
 """
 
 _FINISH = """
-Finish with a short plain-text summary: devices checked, which are offline, which
-are unknown (and why), switch ports that are down, and likely causes{decision}.
+Finish by returning your findings in the required structured format:
+devices_checked (how many devices got a check_device result), every offline
+device, every unknown device (failed check, or never checked) with the reason,
+every switch port that is down, likely causes, a short summary{decision}, and a
+recommended action. Report exactly what the subagents' results say.
 """
 
 
 def coordinator_prompt(decides: bool) -> str:
     return (_BASE + (_DECIDE if decides else "")
-            + _FINISH.format(decision=", and your decision" if decides else ""))
+            + _FINISH.format(decision=" that includes your decision" if decides else ""))
 
 
 def task_prompt(kind: str, site: str) -> str:

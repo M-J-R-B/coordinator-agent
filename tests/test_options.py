@@ -29,8 +29,15 @@ def test_coordinator_has_only_agent_builtin_and_locked_down():
 
 def test_precheck_has_no_decision_tools():
     o = opts()
-    assert o.allowed_tools == ["Agent", LIST_TOOL, CHECK_TOOL]
+    assert o.allowed_tools == ["Agent", LIST_TOOL, CHECK_TOOL, "StructuredOutput"]
     assert "decision" not in o.mcp_servers
+
+
+def test_structured_findings_requested_with_draft07_schema():
+    o = opts()
+    assert o.output_format["type"] == "json_schema"
+    assert o.output_format["schema"]["$schema"] == "http://json-schema.org/draft-07/schema#"
+    assert "devices_checked" in o.output_format["schema"]["required"]
 
 
 def test_postcheck_adds_decision_server_and_tools():

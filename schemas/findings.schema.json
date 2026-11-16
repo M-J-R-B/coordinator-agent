@@ -1,0 +1,57 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Check findings",
+  "description": "The coordinator's structured findings. Draft-07, as the Agent SDK requires for output_format. Self-contained (no internal $ref) so report.schema.json can embed it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["devices_checked", "offline", "unknown", "ports_down",
+               "likely_causes", "summary", "recommended_action"],
+  "properties": {
+    "devices_checked": {
+      "type": "integer", "minimum": 0,
+      "description": "How many devices got a check_device result."
+    },
+    "offline": {
+      "type": "array",
+      "description": "Every device whose check returned status offline.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["device_id", "reason"],
+        "properties": {"device_id": {"type": "string"}, "reason": {"type": "string"}}
+      }
+    },
+    "unknown": {
+      "type": "array",
+      "description": "Every device whose status is unknown: a failed check, or never checked.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["device_id", "reason"],
+        "properties": {"device_id": {"type": "string"}, "reason": {"type": "string"}}
+      }
+    },
+    "ports_down": {
+      "type": "array",
+      "description": "Every switch port reported down.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["switch_id", "port", "label"],
+        "properties": {
+          "switch_id": {"type": "string"},
+          "port": {"type": "integer", "minimum": 1},
+          "label": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "likely_causes": {
+      "type": "array",
+      "description": "Likely cause for an offline or unknown device, e.g. a switch port that is down.",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["device_id", "cause"],
+        "properties": {"device_id": {"type": "string"}, "cause": {"type": "string"}}
+      }
+    },
+    "summary": {"type": "string", "minLength": 1},
+    "recommended_action": {"type": "string", "minLength": 1}
+  }
+}

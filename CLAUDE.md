@@ -69,11 +69,11 @@ Done:
 2. MCP server with device tools
 3. Single agent running pre-check and post-check
 4. Coordinator with CCTV, network and POS subagents, plus the release hook
-
-Remaining:
 5. CI workflow running pytest
 6. Event logging in the coordinator
 7. Report schema with validation and retry
+
+Remaining:
 8. Claude PR review in GitHub Actions
 9. Read-only Streamlit UI
 

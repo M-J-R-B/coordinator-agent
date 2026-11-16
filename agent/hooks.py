@@ -7,6 +7,7 @@ Every allow/deny made by the guard and the gate is written to the event log.
 """
 from agent.diff import diff
 from agent.events import EventLog, agent_name
+from agent.options_base import STRUCTURED_OUTPUT_TOOL
 from agent.recorder import Recorder
 
 
@@ -51,6 +52,23 @@ def make_coordinator_guard(log: EventLog):
         return _deny(reason)
 
     return coordinator_guard
+
+
+def make_retry_guard(phase, log: EventLog):
+    """While findings are being corrected, only StructuredOutput may run.
+
+    A correction must not re-poll devices, launch subagents or try to release:
+    the evidence and the decision are already fixed.
+    """
+    async def retry_guard(data, tool_use_id, context):
+        if not phase.correcting or data.get("tool_name") == STRUCTURED_OUTPUT_TOOL:
+            return {}
+        reason = ("Findings correction only: do not call tools. Return corrected findings "
+                  "from the results you already have.")
+        _log_decision(log, "findings_retry_guard", data, "deny", reason)
+        return _deny(reason)
+
+    return retry_guard
 
 
 class Gate:

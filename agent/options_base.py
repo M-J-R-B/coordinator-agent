@@ -6,5 +6,6 @@ LIST_TOOL = f"mcp__{DEVICES_SERVER}__list_devices"
 CHECK_TOOL = f"mcp__{DEVICES_SERVER}__check_device"
 RELEASE_TOOL = "mcp__decision__release_technician"
 ESCALATE_TOOL = "mcp__decision__hold_and_escalate"
+STRUCTURED_OUTPUT_TOOL = "StructuredOutput"
 MAX_TURNS = 40
 MAX_BUDGET_USD = 1.0

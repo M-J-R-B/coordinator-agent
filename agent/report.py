@@ -1,7 +1,8 @@
-"""Assemble and save check reports. Step 5 adds a JSON schema for these."""
+"""Assemble, validate and save check reports (schema: schemas/report.schema.json)."""
 from dataclasses import asdict
 from pathlib import Path
 
+from agent.schemas import report_errors
 from agent.storage import DATA_DIR, write_json_atomic
 
 DEFAULT_REPORTS_DIR = DATA_DIR / "reports"
@@ -47,3 +48,22 @@ def postcheck_report(check_id: str, site: str, created_at: str, agent: dict | No
 
 def save_report(report: dict, reports_dir: Path = DEFAULT_REPORTS_DIR) -> Path:
     return write_json_atomic(Path(reports_dir) / f"{report['check_id']}.json", report)
+
+
+def finalize(report: dict, reports_dir: Path, log) -> dict:
+    """Every check ends with a report that validates against the schema.
+
+    A report that fails is a bug in our code, not in the model's output. It is
+    still saved (to reports/invalid/) so the evidence is not lost, a post-check
+    is forced to hold, and the errors are logged.
+    """
+    errors = report_errors(report)
+    if not errors:
+        save_report(report, reports_dir)
+        return report
+    if report.get("kind") == "postcheck":
+        report["decision"] = "hold"
+    report["schema_errors"] = errors
+    log.emit("report_invalid", errors=errors)
+    save_report(report, Path(reports_dir) / "invalid")
+    return report

@@ -5,8 +5,9 @@ import pytest
 
 from agent.baseline import load_baseline, save_baseline
 from agent.run import run_check
-from tests.fakes import (Check, FakeQuery, escalate, healthy_site, offline, online,
-                         release, result_message, script)
+from agent.schemas import report_errors
+from tests.fakes import (Check, FakeQuery, correction, escalate, findings_for, healthy_site,
+                         offline, online, release, result_message, script)
 
 
 @pytest.fixture
@@ -35,7 +36,9 @@ def with_baseline(dirs, site=None):
 
 
 async def run(kind, fake, dirs, **kw):
-    return await run_check(kind, query_fn=fake, **dirs, **kw)
+    report = await run_check(kind, query_fn=fake, **dirs, **kw)
+    assert report_errors(report) == [], "every report must validate against the schema"
+    return report
 
 
 def unplugged_site():
@@ -272,3 +275,138 @@ async def test_no_transcripts_means_usage_unavailable_not_zero(dirs):
     report = await run("precheck", FakeQuery(script(healthy_site())), dirs)
     assert report["agent"]["usage"]["source"] == "unavailable"
     assert of_type(read_events(report), "turn_usage") == []
+
+
+# --- structured findings: validation and retry ---
+
+def wrong(site, **change):
+    return {**findings_for(site), **change}
+
+
+@pytest.mark.anyio
+async def test_correct_findings_accepted_first_time(dirs):
+    site = healthy_site(CAM_05=offline("CAM-05"))
+    fake = FakeQuery(script(site))
+    report = await run("precheck", fake, dirs)
+    assert report["findings"] == findings_for(site)
+    assert (report["findings_attempts"], report["findings_error"]) == (1, None)
+    assert len(fake.calls) == 1
+    assert fake.calls[0]["options"].output_format["type"] == "json_schema"
+
+
+@pytest.mark.anyio
+async def test_wrong_findings_corrected_on_retry_with_specific_feedback(dirs):
+    site = healthy_site()
+    fake = FakeQuery(script(site, findings=wrong(site, devices_checked=13)),
+                     retries=[correction(findings_for(site))])
+    report = await run("precheck", fake, dirs)
+    assert report["findings"] == findings_for(site)
+    assert report["findings_attempts"] == 2
+    retry = fake.calls[1]
+    assert retry["options"].resume == "test"          # same session, not a re-run
+    assert "devices_checked is 13, but 14" in retry["prompt"]
+    validations = of_type(read_events(report), "findings_validation")
+    assert [v["valid"] for v in validations] == [False, True]
+
+
+@pytest.mark.anyio
+async def test_findings_still_wrong_after_retries_are_dropped(dirs):
+    site = healthy_site()
+    bad = wrong(site, offline=[{"device_id": "CAM-02", "reason": "?"}])
+    fake = FakeQuery(script(site, findings=bad), retries=[correction(bad), correction(bad)])
+    report = await run("precheck", fake, dirs)
+    assert len(fake.calls) == 3                      # 1 run + MAX_RETRIES corrections
+    assert report["findings"] is None
+    assert report["findings_error"]["attempts"] == 3
+    assert "CAM-02" in report["findings_error"]["errors"][0]
+    assert report["baseline_saved"] is True          # evidence unaffected
+
+
+@pytest.mark.anyio
+async def test_missing_structured_output_triggers_retry(dirs):
+    site = healthy_site()
+    fake = FakeQuery(script(site, findings=None), retries=[correction(findings_for(site))])
+    report = await run("precheck", fake, dirs)
+    assert "no structured findings" in fake.calls[1]["prompt"]
+    assert report["findings"] is not None
+
+
+@pytest.mark.anyio
+async def test_agent_error_is_not_retried(dirs):
+    fake = FakeQuery([result_message("boom", is_error=True, subtype="error_during_execution")])
+    report = await run("precheck", fake, dirs)
+    assert len(fake.calls) == 1
+    assert report["findings"] is None
+    assert report["findings_attempts"] == 0
+
+
+@pytest.mark.anyio
+async def test_tools_denied_during_findings_correction(dirs):
+    """A correction may only rewrite findings: no polling, no subagents, no release."""
+    with_baseline(dirs, unplugged_site())
+    site = unplugged_site()
+    fake = FakeQuery(script(site, escalate(["CAM-03"]), findings=wrong(site, offline=[])),
+                     retries=[correction(findings_for(site),
+                                         Check("CAM-03", online("CAM-03")), release())])
+    report = await run("postcheck", fake, dirs)
+    assert fake.executed == ["hold_and_escalate"]       # release in the retry never ran
+    denied_tools = [tool for tool, _ in fake.denials]
+    assert "mcp__devices__check_device" in denied_tools
+    assert "mcp__decision__release_technician" in denied_tools
+    cam3 = next(d for d in report["diff"]["devices"] if d["device_id"] == "CAM-03")
+    assert cam3["status"] == "offline"                  # evidence not rewritten
+    retry_denials = [e for e in of_type(read_events(report), "hook_decision")
+                     if e["hook"] == "findings_retry_guard"]
+    assert {e["decision"] for e in retry_denials} == {"deny"}
+
+
+@pytest.mark.anyio
+async def test_findings_never_change_the_decision(dirs):
+    """Healthy site released even though the model's findings stay wrong."""
+    with_baseline(dirs)
+    site = healthy_site()
+    bad = wrong(site, devices_checked=1)
+    fake = FakeQuery(script(site, release(), findings=bad),
+                     retries=[correction(bad), correction(bad)])
+    report = await run("postcheck", fake, dirs)
+    assert report["decision"] == "release"
+    assert report["findings"] is None
+
+
+@pytest.mark.anyio
+async def test_retry_cost_included_in_check_total(dirs):
+    site = healthy_site()
+    fake = FakeQuery(script(site, findings=None), retries=[correction(findings_for(site))])
+    report = await run("precheck", fake, dirs)
+    assert report["agent"]["total_cost_usd"] == pytest.approx(0.02)   # 0.01 run + 0.01 retry
+    assert read_events(report)[-1]["total_cost_usd"] == pytest.approx(0.02)
+
+
+@pytest.mark.anyio
+async def test_invalid_report_saved_aside_and_held(dirs, monkeypatch):
+    """A code bug that breaks the schema: report kept for evidence, decision forced to hold."""
+    import agent.report as reports
+    with_baseline(dirs)
+    original = reports.postcheck_report
+    monkeypatch.setattr(reports, "postcheck_report",
+                        lambda *a, **k: {**original(*a, **k), "decision": "release-ish"})
+    report = await run_check("postcheck", query_fn=FakeQuery(script(healthy_site(), release())),
+                             **dirs)
+    assert report["decision"] == "hold"
+    assert report["schema_errors"]
+    assert (dirs["reports_dir"] / "invalid" / f"{report['check_id']}.json").exists()
+    assert not (dirs["reports_dir"] / f"{report['check_id']}.json").exists()
+    assert of_type(read_events(report), "report_invalid")
+
+
+def test_cli_exits_2_on_schema_invalid_report(monkeypatch, capsys):
+    import agent.__main__ as cli
+
+    async def fake_run_check(kind, **kw):
+        return {"kind": "postcheck", "check_id": "c", "agent": None, "diff": None,
+                "decision": "hold", "error": None, "event_log": None,
+                "schema_errors": ["decision: 'release-ish' is not one of ['release', 'hold']"]}
+
+    monkeypatch.setattr(cli, "run_check", fake_run_check)
+    assert cli.main(["postcheck"]) == 2
+    assert "FAILED SCHEMA VALIDATION" in capsys.readouterr().out

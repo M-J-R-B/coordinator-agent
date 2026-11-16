@@ -4,6 +4,7 @@ import os
 import pytest
 
 from agent.run import run_check
+from agent.schemas import report_errors
 from mock_site import faults
 from mock_site.state import empty_state, save_state
 
@@ -21,15 +22,18 @@ def live(tmp_path):
     state = tmp_path / "state.json"
     save_state(state, empty_state())
     return state, {"baseline_dir": tmp_path / "b", "reports_dir": tmp_path / "r",
-                   "state_path": state}
+                   "events_dir": tmp_path / "e", "state_path": state}
 
 
 def show(report):
+    assert report_errors(report) == [], report_errors(report)
     a = report["agent"]
     print(f"\n[{report['kind']}] model={a['model']} turns={a['num_turns']} "
           f"checks={a['check_calls']} cost=${a['total_cost_usd']}")
     if report["kind"] == "postcheck":
         print("decision:", report["decision"], "| agent_decision:", report["agent_decision"])
+    print(f"findings: attempts={report['findings_attempts']} "
+          f"valid={report['findings'] is not None} error={report['findings_error']}")
     print(a["summary"])
 
 

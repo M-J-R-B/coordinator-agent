@@ -47,7 +47,14 @@ def main(argv: list[str] | None = None) -> int:
         print(report["agent"]["summary"].strip(), end="\n\n")
     printer = _print_precheck if args.kind == "precheck" else _print_postcheck
     code = printer(report)
+    if report.get("findings_error"):
+        print(f"Findings rejected after {report['findings_error']['attempts']} attempts: "
+              f"{report['findings_error']['errors']}")
     print(f"Event log: {report['event_log']}")
+    if report.get("schema_errors"):
+        print(f"REPORT FAILED SCHEMA VALIDATION (saved under reports/invalid/): "
+              f"{report['schema_errors']}")
+        return 2
     return code
 
 

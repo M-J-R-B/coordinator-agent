@@ -58,10 +58,28 @@ def healthy_site(**overrides: dict) -> dict[str, dict]:
 
 
 def result_message(text: str = "All checked.", is_error: bool = False,
-                   subtype: str = "success", model_usage: dict | None = None) -> ResultMessage:
+                   subtype: str = "success", model_usage: dict | None = None,
+                   structured_output: dict | None = None) -> ResultMessage:
     return ResultMessage(subtype=subtype, duration_ms=10, duration_api_ms=8,
                          is_error=is_error, num_turns=6, session_id="test",
-                         total_cost_usd=0.01, result=text, model_usage=model_usage)
+                         total_cost_usd=0.01, result=text, model_usage=model_usage,
+                         structured_output=structured_output)
+
+
+def findings_for(site: dict[str, dict], summary: str = "All checked.") -> dict:
+    """Findings that exactly match the payloads in `site` (what a correct model returns)."""
+    offline_ids = [d for d, p in site.items() if p["status"] == "offline"]
+    unknown_ids = [d for d, p in site.items() if p["status"] == "unknown"]
+    ports_down = [{"switch_id": d, "port": port["port"], "label": port["label"]}
+                  for d, p in site.items() if p["status"] == "online" and p.get("ports")
+                  for port in p["ports"] if port["state"] == "down"]
+    return {"devices_checked": len(site),
+            "offline": [{"device_id": d, "reason": "no response"} for d in offline_ids],
+            "unknown": [{"device_id": d, "reason": "check failed"} for d in unknown_ids],
+            "ports_down": ports_down,
+            "likely_causes": [{"device_id": p["label"], "cause": f"{p['switch_id']} port {p['port']} down"}
+                              for p in ports_down if p["label"] in offline_ids],
+            "summary": summary, "recommended_action": "See findings."}
 
 
 # --- scripted steps ---
@@ -182,7 +200,11 @@ class Decide:
         await fire(options, "PostToolUse", name, data)
 
 
-def script(site: dict[str, dict], *extra, summary: str = "All checked.") -> list:
+_CORRECT = object()
+
+
+def script(site: dict[str, dict], *extra, summary: str = "All checked.",
+           findings=_CORRECT) -> list:
     """Coordinator launches the 3 subagents; each checks its own devices; then extra
     steps (decisions) and the final result."""
     steps = [Turn()]
@@ -191,7 +213,13 @@ def script(site: dict[str, dict], *extra, summary: str = "All checked.") -> list
         steps += [Check(d, p) for d, p in site.items()
                   if AGENT_FOR_TYPE.get(TYPES.get(d)) == agent]
         steps.append(Lifecycle(agent, "SubagentStop"))
-    return steps + list(extra) + [Turn()] + [result_message(summary)]
+    out = findings_for(site, summary) if findings is _CORRECT else findings
+    return steps + list(extra) + [Turn()] + [result_message(summary, structured_output=out)]
+
+
+def correction(findings: dict | None, *steps) -> list:
+    """A resumed findings-correction call: optional (denied) steps, then new findings."""
+    return list(steps) + [result_message("corrected", structured_output=findings)]
 
 
 def release(reason: str = "all clear") -> Decide:
@@ -206,8 +234,10 @@ class FakeQuery:
     """Stands in for claude_agent_sdk.query; records calls, denials and executed tools."""
 
     def __init__(self, steps: list | None = None, raises: Exception | None = None,
-                 transcript_dir: Path | None = None):
+                 transcript_dir: Path | None = None, retries: list[list] | None = None):
+        """retries: scripts for later calls (resumed findings corrections), in order."""
         self.steps = steps or []
+        self.retries = list(retries or [])
         self.raises = raises
         self.transcript_dir = Path(transcript_dir) if transcript_dir else None
         self.calls: list[dict] = []
@@ -230,7 +260,8 @@ class FakeQuery:
         self.calls.append({"prompt": prompt, "options": options})
         if self.raises:
             raise self.raises
-        for step in self.steps:
+        steps = self.steps if len(self.calls) == 1 else self.retries.pop(0)
+        for step in steps:
             if isinstance(step, (ResultMessage, AssistantMessage)):
                 yield step
             else:

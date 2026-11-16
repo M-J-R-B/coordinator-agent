@@ -5,8 +5,10 @@ from pathlib import Path
 from claude_agent_sdk import ClaudeAgentOptions
 
 from agent.options_base import (CHECK_TOOL, DEFAULT_MODEL, DEVICES_SERVER, ESCALATE_TOOL,
-                                LIST_TOOL, MAX_BUDGET_USD, MAX_TURNS, RELEASE_TOOL)
+                                LIST_TOOL, MAX_BUDGET_USD, MAX_TURNS, RELEASE_TOOL,
+                                STRUCTURED_OUTPUT_TOOL)
 from agent.prompts import coordinator_prompt
+from agent.schemas import findings_schema
 from agent.storage import REPO_ROOT
 from agent.subagents import build_subagents
 
@@ -27,7 +29,9 @@ def build_options(*, hooks: dict, model: str = DEFAULT_MODEL,
                   decision_server: dict | None = None) -> ClaudeAgentOptions:
     """decision_server given = post-check (coordinator may release or escalate)."""
     servers = {DEVICES_SERVER: _devices_server(state_path)}
-    allowed = ["Agent", LIST_TOOL, CHECK_TOOL]   # device tools: used by subagents only
+    # device tools: used by subagents only. StructuredOutput: the SDK's tool for
+    # returning output_format results; dontAsk would deny it if not listed.
+    allowed = ["Agent", LIST_TOOL, CHECK_TOOL, STRUCTURED_OUTPUT_TOOL]
     if decision_server is not None:
         servers["decision"] = decision_server
         allowed += [RELEASE_TOOL, ESCALATE_TOOL]
@@ -42,6 +46,7 @@ def build_options(*, hooks: dict, model: str = DEFAULT_MODEL,
         permission_mode="dontAsk",   # anything not allowed is denied, never prompted
         setting_sources=[],          # don't load user/project settings or CLAUDE.md
         hooks=hooks,
+        output_format={"type": "json_schema", "schema": findings_schema()},
         max_turns=MAX_TURNS,
         max_budget_usd=MAX_BUDGET_USD,
         cwd=str(REPO_ROOT),
