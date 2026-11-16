@@ -67,4 +67,5 @@ Build one step at a time. Each step needs passing tests before the next.
 - Explain each design decision briefly, including the alternative you
   rejected, so I can learn the trade-off.
 - Keep functions small. No extra dependencies without asking.
-- Commands: `pytest` to test, `python -m mock_site` to run the simulator.
+- Commands: `pytest` to test, `python -m mock_site` to run the simulator,
+  `python -m mcp_server` to run the device tools over stdio.

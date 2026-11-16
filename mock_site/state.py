@@ -5,7 +5,9 @@ from pathlib import Path
 
 from mock_site.devices import SITE_ID
 
-DEFAULT_STATE_PATH = Path("data/site_state.json")
+# Anchored to the repo, not the current directory, so the CLI and the MCP
+# server always share one file no matter where each is launched from.
+DEFAULT_STATE_PATH = Path(__file__).resolve().parent.parent / "data" / "site_state.json"
 
 
 def empty_state() -> dict:
