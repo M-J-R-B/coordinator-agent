@@ -72,9 +72,9 @@ Done:
 5. CI workflow running pytest
 6. Event logging in the coordinator
 7. Report schema with validation and retry
+8. Claude PR review in GitHub Actions
 
 Remaining:
-8. Claude PR review in GitHub Actions
 9. Read-only Streamlit UI
 
 Build one step at a time. Each step needs passing tests before the next.
