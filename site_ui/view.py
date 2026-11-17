@@ -79,14 +79,16 @@ def _is_int(x) -> bool:
 
 
 def _valid_fault(f) -> bool:
+    """Same limits the faults module enforces, so every listed fault can be cleared."""
     if not isinstance(f, dict) or f.get("type") not in FAULT_TYPES:
         return False
-    if not isinstance(f.get("device"), str):
+    # str check first: an unhashable value (e.g. a list) would crash the dict lookup
+    if not isinstance(f.get("device"), str) or f["device"] not in INVENTORY:
         return False
     if f["type"] == "port_down":
-        return _is_int(f.get("port"))
+        return _is_int(f.get("port")) and 1 <= f["port"] <= PORT_COUNT
     if f["type"] == "slow":
-        return _is_int(f.get("ms"))
+        return _is_int(f.get("ms")) and f["ms"] > 0
     return True
 
 

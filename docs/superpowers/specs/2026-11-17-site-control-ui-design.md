@@ -61,7 +61,7 @@ Needed because `clear_device` on a switch clears its ports *and* its condition.
   an unknown device is `⚪ <ID> unknown`; ▫️ for an empty, up port.
 
 ### `site_ui/actions.py`
-Each function: `load_state(path)` at click time → one `faults.*` call →
+Each function: `view.read_state(path)` (validated) at click time → one `faults.*` call →
 `save_state(path, new)`. On `ValueError` nothing is written and
 the error is returned as a message.
 - `inject(path, kind, device, *, port=None, ms=None)` — kind ∈
@@ -127,7 +127,7 @@ Files (the UI tests use `importorskip("streamlit")`; the rest run on 3.10):
   new dependencies.
 - Run: `python -m streamlit run site_ui/app.py --server.address localhost --server.port 8502`
 - CLAUDE.md: add `site_ui/` to Structure, the run command to Commands, and
-  "10. Site control UI" to the build order.
+  "10. Mock-site control panel (site_ui)" to the build order.
 
 ## Out of scope
 Running checks from the UI; editing the inventory or cabling; multiple sites;

@@ -4,6 +4,7 @@ import pytest
 from mcp_server import checks
 from mcp_server.models import DeviceCheck, ToolFailure
 from mock_site import faults
+from mock_site.devices import INVENTORY
 from mock_site.state import empty_state, save_state
 
 
@@ -119,15 +120,17 @@ def test_state_reloaded_on_every_check(state_path):
     assert check("CAM-05", state_path).status == "offline"
 
 
+def no_sleep(_seconds):
+    pass
+
+
 def test_check_state_matches_check_device_for_every_device(tmp_path):
-    from mock_site.devices import INVENTORY
     state = empty_state()
     state = faults.inject_port_down(state, "SW-01", 3)
     state = faults.inject_slow(state, "CAM-06", 5000)
     state = faults.inject_timeout(state, "POS-02")
     path = tmp_path / "state.json"
     save_state(path, state)
-    no_sleep = lambda _s: None
     for device_id in INVENTORY:
         assert (checks.check_state(device_id, state, sleep=no_sleep)
                 == checks.check_device(device_id, path, sleep=no_sleep))

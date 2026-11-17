@@ -86,5 +86,6 @@ Build one step at a time. Each step needs passing tests before the next.
 - Commands: `pytest` to test, `python -m mock_site` to run the simulator,
   `python -m mcp_server` to run the device tools over stdio,
   `python -m streamlit run ui/app.py --server.address localhost` for the
-  read-only UI (needs the `[ui]` extra, Python 3.11+).
-  `python -m streamlit run site_ui/app.py --server.address localhost --server.port 8502` for the mock-site control panel (also needs the `[ui]` extra).
+  read-only UI, and
+  `python -m streamlit run site_ui/app.py --server.address localhost --server.port 8502`
+  for the mock-site control panel (both need the `[ui]` extra, Python 3.11+).

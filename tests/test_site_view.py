@@ -165,6 +165,9 @@ def test_site_model_loads_state_once(tmp_path, monkeypatch):
     {"type": "offlne", "device": "CAM-01"},
     {"type": "port_down", "device": "SW-01", "port": True},
     {"type": "slow", "device": "CAM-01", "ms": True},
+    {"type": "offline", "device": "CAM-99"},              # the panel could never clear it
+    {"type": "port_down", "device": "SW-01", "port": 25},
+    {"type": "offline", "device": ["CAM-01"]},             # unhashable: must not crash
 ])
 def test_malformed_fault_entry_sets_error(tmp_path, entry):
     path = tmp_path / "site_state.json"
