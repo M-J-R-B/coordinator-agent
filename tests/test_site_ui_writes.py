@@ -2,11 +2,11 @@
 
 app.py and view.py may read (read_state, check_state) but may not import
 mock_site.faults or save_state. view.py (the reader) may not import actions
-(the writer); actions may import view. actions.py writes only via save_state.
+(the writer); actions may import view. actions.py writes only via save_state. The scanners live in tests/ast_guards.py.
 """
 import ast
 
-from tests.test_ui_readonly import REPO, imported_modules, sources, write_calls
+from tests.ast_guards import REPO, imported_modules, sources, write_calls, writer_attribute_calls
 
 SITE_UI = REPO / "site_ui"
 
@@ -20,23 +20,30 @@ def writer_imports(tree: ast.AST) -> list[str]:
             names = {a.name for a in node.names}
             if node.module == "mock_site.faults" or (node.module == "mock_site" and "faults" in names):
                 bad.append("mock_site.faults")
-            if "save_state" in names:
-                bad.append("save_state")
+            bad += sorted(names & {"save_state", "write_json_atomic"})
     return bad
 
 
 def imports_actions(tree: ast.AST) -> bool:
-    """True if the module imports site_ui.actions in any spelling."""
+    """True if the module imports site_ui.actions in any spelling, relative included."""
     if "site_ui.actions" in imported_modules(tree):
         return True
-    return any(isinstance(n, ast.ImportFrom) and n.module == "site_ui"
-               and any(a.name == "actions" for a in n.names) for n in ast.walk(tree))
+    for n in ast.walk(tree):
+        if not isinstance(n, ast.ImportFrom):
+            continue
+        names = {a.name for a in n.names}
+        if n.module == "site_ui" and "actions" in names:
+            return True
+        if n.level >= 1 and (n.module == "actions" or (n.module is None and "actions" in names)):
+            return True
+    return False
 
 
 def test_only_actions_imports_state_writers():
     for path, tree in sources(SITE_UI):
         if path.name != "actions.py":
             assert not writer_imports(tree), f"{path.name} imports {writer_imports(tree)}"
+            assert not writer_attribute_calls(tree), f"{path.name}: {writer_attribute_calls(tree)}"
 
 
 def test_guard_sees_the_writers_in_actions():
@@ -55,10 +62,19 @@ def test_imports_actions_detector():
     assert imports_actions(ast.parse("from site_ui import actions"))
     assert imports_actions(ast.parse("import site_ui.actions"))
     assert imports_actions(ast.parse("from site_ui.actions import inject"))
+    assert imports_actions(ast.parse("from . import actions"))
+    assert imports_actions(ast.parse("from .actions import inject"))
     assert not imports_actions(ast.parse("from site_ui import view"))
+    assert not imports_actions(ast.parse("from . import view"))
 
 
 def test_site_ui_never_writes_files_directly():
     for path, tree in sources(SITE_UI):
         found = write_calls(tree)
         assert not found, f"{path.name}: {found}"
+
+
+def test_site_ui_does_not_import_shell_or_copy_tools():
+    for path, tree in sources(SITE_UI):
+        bad = [m for m in imported_modules(tree) if m.split(".")[0] in {"shutil", "subprocess"}]
+        assert not bad, f"{path.name} imports {bad}"

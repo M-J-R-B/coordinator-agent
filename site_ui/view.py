@@ -1,7 +1,7 @@
 """What the site control panel shows: the topology, as the agent's tools see it.
 
-No Streamlit and no writes. Status comes from mcp_server.checks.check_device,
-the same function behind the agent's check_device tool, so a device that is
+No Streamlit and no writes. Status comes from mcp_server.checks.check_state (the function behind
+the agent's check_device tool), so a device that is
 slow past the poll deadline shows as unknown here too.
 
 Ports show the cabling and injected port faults (what you control), even while
@@ -70,7 +70,7 @@ def state_path() -> Path:
 
 
 def _no_sleep(_seconds: float) -> None:
-    """The panel must be instant; check_device's deadline still applies."""
+    """The panel must be instant; the tool's deadline still applies."""
 
 
 def _valid_fault(f) -> bool:

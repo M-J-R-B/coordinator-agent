@@ -25,6 +25,8 @@ def test_panel_shows_what_the_tool_returns(tmp_path):
                    actions.inject(path, "offline", "CAM-08")):
         assert result.ok, result.message
     model = view.site_model(path)
+    # view polls via check_state; comparing with check_device pins view to the tool's
+    # default deadline and the file format actions writes.
     for device_id in INVENTORY:
         tool = check_device(device_id, path, sleep=no_sleep)
         shown = model.devices[device_id]
