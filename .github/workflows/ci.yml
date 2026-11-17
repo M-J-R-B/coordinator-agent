@@ -27,8 +27,10 @@ jobs:
           cache: pip
           cache-dependency-path: pyproject.toml
 
+      # [ui] installs Streamlit only on Python 3.11+ (environment marker),
+      # so the 3.10 job tests the agent and skips the UI tests.
       - name: Install
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,ui]"
 
       # Live model tests skip themselves: PRECHECK_LIVE is never set here.
       - name: Test

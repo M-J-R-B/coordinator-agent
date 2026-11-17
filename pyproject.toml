@@ -11,10 +11,13 @@ dependencies = ["mcp>=1.27,<2", "claude-agent-sdk>=0.2.182", "jsonschema>=4.0"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# Read-only UI. Streamlit needs Python 3.11+; the agent itself stays 3.10+,
+# so on 3.10 this extra installs nothing and the UI tests skip.
+ui = ["streamlit>=1.67; python_version >= '3.11'"]
 
 [tool.setuptools]
 # Flat layout with several top-level folders: list the packages explicitly.
-packages = ["mock_site", "mcp_server", "agent"]
+packages = ["mock_site", "mcp_server", "agent", "ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
