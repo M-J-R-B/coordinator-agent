@@ -85,7 +85,8 @@ def _valid_fault(f) -> bool:
     return True
 
 
-def _read(path: Path) -> tuple[dict | None, str | None]:
+def read_state(path: Path) -> tuple[dict | None, str | None]:
+    """Load and validate the state file; (state, None) or (None, error text)."""
     try:
         state = load_state(path)
     except (OSError, ValueError) as exc:   # JSONDecodeError is a ValueError
@@ -159,7 +160,7 @@ def _ports(switch_id: str, faults: list[dict]) -> list[PortView]:
 
 
 def site_model(path: Path) -> SiteModel:
-    state, error = _read(Path(path))
+    state, error = read_state(Path(path))
     if error:
         return SiteModel(site=SITE_ID, error=error)
     faults = state["faults"]
