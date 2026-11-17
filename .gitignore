@@ -5,3 +5,4 @@ data/**/*.jsonl
 data/**/*.tmp
 *.egg-info/
 build/
+.superpowers/
