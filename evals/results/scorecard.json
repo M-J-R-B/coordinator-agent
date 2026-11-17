@@ -1,0 +1,186 @@
+{
+  "summary": {
+    "model": "claude-haiku-5-5",
+    "generated_at": "2026-11-17T07:16:11+00:00",
+    "scenarios": 10,
+    "correct": 9,
+    "accuracy": 0.9,
+    "false_releases": 0,
+    "false_holds": 1,
+    "errors": 0,
+    "blocked_release_attempts": 0,
+    "blocking_matches": 10,
+    "schema_valid": 10,
+    "total_cost_usd": 0.069862385,
+    "mean_cost_usd": 0.0069862385,
+    "runs_without_cost": 0
+  },
+  "results": [
+    {
+      "scenario_id": "clean-visit",
+      "expected_decision": "release",
+      "actual_decision": "release",
+      "correct": true,
+      "expected_blocking": [],
+      "reported_blocking": [],
+      "blocking_match": true,
+      "cost_usd": 0.00677174,
+      "num_turns": 12,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "camera-goes-offline",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "CAM-03"
+      ],
+      "reported_blocking": [
+        "CAM-03"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.006468635000000001,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "pos-goes-offline",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "POS-02"
+      ],
+      "reported_blocking": [
+        "POS-02"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.007107530000000001,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "camera-times-out",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "CAM-05"
+      ],
+      "reported_blocking": [
+        "CAM-05"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.007405915,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "slow-but-online",
+      "expected_decision": "release",
+      "actual_decision": "release",
+      "correct": true,
+      "expected_blocking": [],
+      "reported_blocking": [],
+      "blocking_match": true,
+      "cost_usd": 0.006339325000000001,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "already-offline-before",
+      "expected_decision": "release",
+      "actual_decision": "hold",
+      "correct": false,
+      "expected_blocking": [],
+      "reported_blocking": [],
+      "blocking_match": true,
+      "cost_usd": 0.0077093100000000005,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "pre-existing-plus-new",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "POS-04"
+      ],
+      "reported_blocking": [
+        "POS-04"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.00724032,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "fixed-during-visit",
+      "expected_decision": "release",
+      "actual_decision": "release",
+      "correct": true,
+      "expected_blocking": [],
+      "reported_blocking": [],
+      "blocking_match": true,
+      "cost_usd": 0.00681439,
+      "num_turns": 12,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "two-new-faults",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "CAM-01",
+        "SW-02"
+      ],
+      "reported_blocking": [
+        "CAM-01",
+        "SW-02"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.007553315000000001,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    },
+    {
+      "scenario_id": "switch-port-down",
+      "expected_decision": "hold",
+      "actual_decision": "hold",
+      "correct": true,
+      "expected_blocking": [
+        "CAM-03"
+      ],
+      "reported_blocking": [
+        "CAM-03"
+      ],
+      "blocking_match": true,
+      "cost_usd": 0.006451905000000001,
+      "num_turns": 11,
+      "schema_valid": true,
+      "error": null,
+      "blocked_release_attempts": 0
+    }
+  ]
+}
