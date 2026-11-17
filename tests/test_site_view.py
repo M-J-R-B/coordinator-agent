@@ -96,3 +96,31 @@ def test_wrong_shape_sets_error(tmp_path):
 def test_state_path_follows_env(tmp_path, monkeypatch):
     monkeypatch.setenv(view.STATE_ENV, str(tmp_path / "x.json"))
     assert view.state_path() == tmp_path / "x.json"
+
+
+def faulty(tmp_path):
+    return model_for(
+        tmp_path,
+        lambda s: faults.inject_port_down(s, "SW-01", 3),
+        lambda s: faults.inject_slow(s, "CAM-06", 800),
+        lambda s: faults.inject_timeout(s, "POS-02"),
+    )
+
+
+def test_device_labels(tmp_path):
+    m = faulty(tmp_path)
+    assert view.device_label(m.devices["CAM-01"]) == "🟢 CAM-01"
+    assert view.device_label(m.devices["CAM-03"]) == "🔴 CAM-03"
+    assert view.device_label(m.devices["CAM-06"]) == "🟡 CAM-06 800ms"
+    assert view.device_label(m.devices["POS-02"]) == "⚪ POS-02 unknown"
+
+
+def test_port_text(tmp_path):
+    ports = faulty(tmp_path).ports["SW-01"]
+    assert [view.port_text(ports[i]) for i in (0, 2, 8)] == ["🟢1", "🔴3", "▫️9"]
+
+
+def test_fault_text():
+    assert view.fault_text({"type": "port_down", "device": "SW-01", "port": 3}) == "port_down SW-01 port 3"
+    assert view.fault_text({"type": "slow", "device": "CAM-06", "ms": 800}) == "slow CAM-06 800ms"
+    assert view.fault_text({"type": "offline", "device": "CAM-03"}) == "offline CAM-03"

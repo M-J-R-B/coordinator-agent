@@ -135,3 +135,25 @@ def site_model(path: Path) -> SiteModel:
         ports={sw: _ports(sw, faults) for sw in SWITCHES},
         faults=faults,
     )
+
+
+def device_label(d: DeviceView) -> str:
+    text = f"{DOTS[d.display]} {d.device_id}"
+    if d.slow:
+        text += f" {d.latency_ms}ms"
+    if d.status == "unknown":
+        text += " unknown"
+    return text
+
+
+def port_text(p: PortView) -> str:
+    dot = DOTS["offline"] if p.down else DOTS["online"] if p.cabled_to else EMPTY_PORT
+    return f"{dot}{p.port}"
+
+
+def fault_text(f: dict) -> str:
+    if f["type"] == "port_down":
+        return f"port_down {f['device']} port {f['port']}"
+    if f["type"] == "slow":
+        return f"slow {f['device']} {f['ms']}ms"
+    return f"{f['type']} {f['device']}"
