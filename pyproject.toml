@@ -17,7 +17,7 @@ ui = ["streamlit>=1.67; python_version >= '3.11'"]
 
 [tool.setuptools]
 # Flat layout with several top-level folders: list the packages explicitly.
-packages = ["mock_site", "mcp_server", "agent", "ui"]
+packages = ["mock_site", "mcp_server", "agent", "ui", "site_ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

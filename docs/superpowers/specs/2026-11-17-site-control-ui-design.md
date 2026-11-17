@@ -1,7 +1,7 @@
 # Site control UI for the mock site — design
 
 Date: 2026-11-17
-Status: approved in brainstorming, awaiting spec review
+Status: implemented (branch site-control-ui)
 
 ## Goal
 A Streamlit control panel for STORE-001 that shows the site as a topology
@@ -14,7 +14,7 @@ It replaces the `python -m mock_site inject …` CLI for workflow step 2
 |---|---|---|
 | Separate package `site_ui/`, own command and port | A page inside the read-only dashboard `ui/` | Keeps "ui/ never writes" a simple, test-enforced fact; the thing that changes state is separate from the thing that watches it |
 | Topology layout | Status table + form; device cards | Only layout that shows a port going down and taking its camera with it |
-| Status computed via `mcp_server.checks.check_device` (no-op sleep) | `mock_site.poll.poll_device` directly | Panel must show what the agent will see; they differ when slow > poll deadline (→ `unknown`) |
+| Status computed via `mcp_server.checks.check_state` (no-op sleep), split out of `check_device`, which the agent's tool still uses | `mock_site.poll.poll_device` directly | Panel must show what the agent will see; they differ when slow > poll deadline (→ `unknown`) |
 | Writes call `mock_site.faults.*` + `save_state` in-process | Subprocess to the CLI | Faster, testable, structured errors instead of parsing text |
 | Emoji status dots on `st.button` labels | Custom HTML/JS component | No new dependency, testable with `AppTest`, no extra click channel |
 | State path from `$PRECHECK_STATE_PATH`, else `data/site_state.json` | A new UI-specific env var | Same name as the MCP server, so the panel always edits the file the agent polls |
@@ -38,41 +38,56 @@ Needed because `clear_device` on a switch clears its ports *and* its condition.
 
 ### `site_ui/view.py`
 - `state_path() -> Path`: `$PRECHECK_STATE_PATH` or `DEFAULT_STATE_PATH`.
-- `site_model(path) -> SiteModel`, built from one `load_state` plus one
-  `check_device(id, path, sleep=no-op)` per device. Contains:
+- `read_state(path) -> (state, error)`: loads the file and validates its shape
+  and every fault entry (known type; `device` is a str; `port`/`ms` are ints,
+  not bools). Shared by `site_model` and `actions`: actions may import view;
+  view may not import actions.
+- `site_model(path) -> SiteModel`: loads the file **once** and polls every
+  device from that one snapshot with `check_state(id, state, sleep=no-op)`.
+  Contains:
   - per device: id, type, `status` (`online|offline|unknown`), `slow`
-    (online with latency above the default 5ms), latency_ms, error text
-    (for unknown), `cause` (e.g. "via SW-01 port 3", "switch SW-01 offline",
-    "slow 800ms + SW-01 0ms"), and the device's own active faults;
-  - per switch: 24 ports, each `{port, cabled_to | None, state up|down}`;
-  - counts by status display (online / offline / unknown / slow);
+    (online with latency above the default 5ms), latency_ms, `cause`, and the
+    device's own active faults;
+  - cause rules: unknown keeps the poll message, plus the device's own
+    slowness, plus upstream causes (e.g. "via SW-01 port 3 down",
+    "switch SW-01 slow 1500ms"); offline drops slowness (it never answered);
+  - per switch: 24 ports, each `{port, cabled_to | None, down}`. Ports show
+    configuration (cabling and injected port faults), even while the switch is
+    unreachable; device dots show what a poll returns;
+  - counts by status display (online / slow / offline / unknown);
   - active faults list;
   - `error`: set when the state file can't be read (then devices are omitted).
-- `dot(status, slow) -> str`: 🟢 online · 🟡 online but slow · 🔴 offline ·
-  ⚪ unknown; ▫️ for an empty, up port.
+- Labels: 🟢 online · 🟡 online but slow (`🟡 CAM-06 800ms`) · 🔴 offline ·
+  an unknown device is `⚪ <ID> unknown`; ▫️ for an empty, up port.
 
 ### `site_ui/actions.py`
 Each function: `load_state(path)` at click time → one `faults.*` call →
-`save_state(path, new)`. On `ValueError`/`KeyError` nothing is written and
+`save_state(path, new)`. On `ValueError` nothing is written and
 the error is returned as a message.
 - `inject(path, kind, device, *, port=None, ms=None)` — kind ∈
   offline / timeout / slow / port_down
 - `clear_device(path, device)`, `bring_port_up(path, switch, port)`
 - `reset(path)` — also the recovery for an unreadable state file
   (it does not load the file first)
-Returns `ActionResult(ok: bool, message: str)`.
+Every action returns `ActionResult(ok, message)` and never raises: failed
+saves (`OSError`), non-int `port`/`ms` and wrong-shape files all return
+`ok=False`. Messages look like "CAM-06 slow 800ms", "SW-01 port 3 down",
+"CAM-01 set offline".
 
 ### `site_ui/app.py`
-- Header: site, counts by dot, active-fault count, **Reset all faults**
-  (needs a confirm checkbox/second click).
+- Header: site, counts by dot, active-fault count, state path.
 - Left: per switch, a switch button, 24 port buttons in 2 rows of 12, then its
-  cabled devices as buttons labelled with dot, id, and latency or "timeout".
+  cabled devices as buttons. The selected port or device button is highlighted
+  (`type="primary"`).
 - Right: action panel for the selection (kept in `st.session_state`):
-  - port → **Bring port up** or **Take port down** (empty ports too)
-  - device → **Offline**, **Timeout**, **Slow [ms]** + Set, **Clear**
-  - switch → same as device; Clear notes it also brings its ports up
-  - below: active faults list and last action result (`st.toast` +
-    persistent caption)
+  - port: **Bring port up** or **Take port down** (empty ports too)
+  - device: **Offline**, **Timeout**, **Slow [ms]** + Set, **Clear**
+  - switch: same as device; Clear notes it also brings its ports up
+  - below: the last action result, then the active faults list, then **Reset
+    all faults** at the bottom, which needs a confirm checkbox.
+- Action results are a persistent, timestamped `st.success`/`st.error` above
+  the faults list, cleared on a new selection. There is no toast. Selecting
+  anything also un-ticks the reset confirmation.
 - Topology is drawn in `st.fragment(run_every=2)` so CLI changes appear;
   selection survives the refresh.
 
@@ -80,30 +95,32 @@ Returns `ActionResult(ok: bool, message: str)`.
 | Situation | Behaviour |
 |---|---|
 | State file missing | Healthy site (as the CLI); first action creates it |
-| State file unreadable | Red banner with path; all fault buttons disabled; only Reset, worded "Overwrite unreadable file with a healthy site" |
-| `faults.*` rejects input | `st.error(message)`; file unchanged |
-| `check_device` internal failure | Device shows ⚪ unknown with the error text |
+| State file unreadable | Red banner with path; fault controls are **not drawn**; only Reset is shown, labelled "Overwrite unreadable file with a healthy site" |
+| `faults.*` rejects input | `ActionResult(ok=False)`, shown as `st.error`; file unchanged |
+| `check_state` internal failure | Device shows ⚪ unknown with the error text |
 | Concurrent CLI write | Accepted race; actions re-read at click time; documented in `actions.py` |
 
 ## Testing (TDD)
-1. `tests/test_faults.py`: `clear_port` removes only that port_down; keeps
-   switch condition and other ports; rejects non-switch and out-of-range port.
-2. `tests/test_site_view.py` (plain pytest, runs on 3.10): port down →
-   CAM-03 offline with cause; slow above poll deadline → unknown (timeout);
-   slow below → online + slow; switch slow → attached devices slow; empty
-   ports; counts; unreadable file → `error` set.
-3. `tests/test_site_actions.py`: each action changes a temp state file as
-   expected; bad input leaves the file byte-identical; reset fixes a corrupt
-   file.
-4. `tests/test_site_app.py` (`AppTest`, `importorskip("streamlit")`): starts
-   without exceptions; select SW-01 port 3 → Take port down → CAM-03 shows 🔴;
-   Reset needs confirmation; corrupt file disables fault buttons.
-5. AST guards: extend `tests/test_ui_readonly.py` so `ui/` may not import
-   `site_ui`; new `tests/test_site_ui_writes.py` so only `site_ui/actions.py`
-   imports `save_state` or `mock_site.faults` and no `site_ui` file writes
-   files directly.
-6. End to end, no model: inject via `site_ui.actions`, then call the real
-   `mcp_server.checks.check_device` and compare with `site_model`.
+Files (the UI tests use `importorskip("streamlit")`; the rest run on 3.10):
+- `tests/test_faults.py`: `clear_port` removes only that port_down; keeps the
+  switch condition and other ports; rejects non-switch and out-of-range port.
+- `tests/test_checks.py`: `check_state` parity with `check_device`.
+- `tests/test_site_view.py`: topology, causes, slow vs the poll deadline,
+  single load of the file, malformed fault entries and unreadable file set
+  `error`.
+- `tests/test_site_actions.py`: each action changes a temp state file as
+  expected; bad input leaves the file byte-identical; reset fixes a corrupt
+  file.
+- `tests/test_site_agreement.py`: end to end, no model: inject via
+  `site_ui.actions`, then compare the real `check_device` with `site_model`.
+- `tests/test_site_app.py` (`AppTest`): selection, actions, single error
+  banner, reset confirmation, unreadable file.
+- `tests/test_ui_readonly.py` and `tests/test_site_ui_writes.py`: AST guards.
+  `ui/` may not import `site_ui`. In `site_ui/`, only `actions.py` imports
+  `mock_site.faults` or writer names. Writers reached through attributes,
+  relative imports of actions, `Path.open` in write mode, and shutil/subprocess
+  are all caught.
+- `tests/ast_guards.py`: the shared scanners.
 
 ## Packaging and docs
 - `pyproject.toml`: add `site_ui` to packages; reuse the `[ui]` extra. No

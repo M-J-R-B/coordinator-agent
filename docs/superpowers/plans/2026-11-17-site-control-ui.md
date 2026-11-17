@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-17-site-control-ui-design.md`
 
+> **As built:** review rounds changed the code beyond the task text below (check_state split, read_state validation, guard gaps, app polish). The spec's "As built" status and the code are the source of truth.
+
 **Conventions for every task**
 - Run tests from the repo root: `C:\Users\MJ\precheck-agent`.
 - Commit from **bash** with `git commit -q -F - <<'EOF' … EOF` (never PowerShell `Out-File`: it adds a BOM). Every message ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
