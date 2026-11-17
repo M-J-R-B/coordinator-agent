@@ -113,5 +113,5 @@ def write(summary: dict, results: list[Result], *, json_path: Path, markdown_pat
     json_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     notes = _kept_notes(markdown_path) or "\n"
     markdown_path.write_text(
-        render_markdown(summary, results) + "## Notes\n\n" + NOTES_MARKER + notes,
+        render_markdown(summary, results) + "\n## Notes\n\n" + NOTES_MARKER + notes,
         encoding="utf-8")

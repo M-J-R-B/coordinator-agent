@@ -27,6 +27,13 @@ The agent is run against a simulated store (8 cameras, 2 switches, 4 POS termina
 | switch-port-down | A switch port goes down during the visit, taking the camera cabled to it offline. | hold | hold | yes | 0 | $0.0065 |
 
 Reproduce with `PRECHECK_LIVE=1 python -m evals` (this spends model usage).
+
 ## Notes
 
 <!-- notes -->
+
+**`already-offline-before` (wrong: held when the rules allow a release).** Nothing new was wrong after the visit. The only offline device, CAM-07, was already offline before the technician started, and the diff classed it correctly: no blocking devices were reported. The code-level gate would have allowed a release, but the agent did not ask for one. This run did not record the agent's stated reason, so it is not given here; the harness has since been changed to record what the agent did and why on every run. This is the safe direction of error (a technician waits when they could have left), but it is still an error, and it is counted as one.
+
+**No false releases is by design, not luck.** A report says "release" only if the release hook let the release through, and the hook refuses while any blocking fault is present. The number to watch is "release attempts stopped by the code-level gate": in this run the agent never tried to release when it should not have.
+
+**What this run is and is not.** Ten scenarios, one run each, on one model. It shows the agent and the gate behave as intended on these cases; it is too small to give a reliable accuracy figure.
