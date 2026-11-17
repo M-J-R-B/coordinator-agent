@@ -2,11 +2,12 @@
 
 app.py and view.py may read (read_state, check_state) but may not import
 mock_site.faults or save_state. view.py (the reader) may not import actions
-(the writer); actions may import view. actions.py writes only via save_state. The scanners live in tests/ast_guards.py.
+(the writer); actions may import view. actions.py writes only via save_state.
+The scanners live in tests/ast_guards.py.
 """
 import ast
 
-from tests.ast_guards import REPO, imported_modules, sources, write_calls, writer_attribute_calls
+from tests.ast_guards import REPO, WRITER_NAMES, imported_modules, sources, write_calls, writer_attribute_calls
 
 SITE_UI = REPO / "site_ui"
 
@@ -20,7 +21,7 @@ def writer_imports(tree: ast.AST) -> list[str]:
             names = {a.name for a in node.names}
             if node.module == "mock_site.faults" or (node.module == "mock_site" and "faults" in names):
                 bad.append("mock_site.faults")
-            bad += sorted(names & {"save_state", "write_json_atomic"})
+            bad += sorted(names & WRITER_NAMES)
     return bad
 
 
@@ -50,6 +51,10 @@ def test_guard_sees_the_writers_in_actions():
     """Self-test: if this fails the guard above is blind, not the code clean."""
     tree = dict(sources(SITE_UI))[SITE_UI / "actions.py"]
     assert set(writer_imports(tree)) == {"mock_site.faults", "save_state"}
+
+
+def test_writer_imports_sees_other_writer_names():
+    assert writer_imports(ast.parse("from agent.report import save_report"))
 
 
 def test_view_does_not_import_actions():

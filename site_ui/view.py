@@ -1,8 +1,8 @@
 """What the site control panel shows: the topology, as the agent's tools see it.
 
-No Streamlit and no writes. Status comes from mcp_server.checks.check_state (the function behind
-the agent's check_device tool), so a device that is
-slow past the poll deadline shows as unknown here too.
+No Streamlit and no writes. Status comes from mcp_server.checks.check_state (the
+function behind the agent's check_device tool), so a device that is slow past
+the poll deadline shows as unknown here too.
 
 Ports show the cabling and injected port faults (what you control), even while
 the switch itself is unreachable; device dots show what a poll returns.
@@ -17,6 +17,7 @@ from mock_site.devices import INVENTORY, PORT_COUNT, PORT_MAP, SITE_ID, port_lab
 from mock_site.poll import DEFAULT_LATENCY_MS
 from mock_site.state import DEFAULT_STATE_PATH, load_state
 
+FAULT_TYPES = {"offline", "timeout", "slow", "port_down"}
 STATE_ENV = "PRECHECK_STATE_PATH"   # same variable the MCP server reads
 SWITCHES = [d for d, dev in INVENTORY.items() if dev.type == "switch"]
 DOTS = {"online": "🟢", "slow": "🟡", "offline": "🔴", "unknown": "⚪"}
@@ -73,15 +74,19 @@ def _no_sleep(_seconds: float) -> None:
     """The panel must be instant; the tool's deadline still applies."""
 
 
+def _is_int(x) -> bool:
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
 def _valid_fault(f) -> bool:
-    if not isinstance(f, dict):
+    if not isinstance(f, dict) or f.get("type") not in FAULT_TYPES:
         return False
-    if not isinstance(f.get("type"), str) or not isinstance(f.get("device"), str):
+    if not isinstance(f.get("device"), str):
         return False
     if f["type"] == "port_down":
-        return isinstance(f.get("port"), int)
+        return _is_int(f.get("port"))
     if f["type"] == "slow":
-        return isinstance(f.get("ms"), int)
+        return _is_int(f.get("ms"))
     return True
 
 
@@ -131,8 +136,9 @@ def _cause(device_id: str, check, faults: list[dict]) -> str:
     """Why the device shows its status. Unknown keeps the upstream reason;
     offline drops slowness (a device that never answered has no latency)."""
     if check.status == "unknown":
-        upstream = [text for _type, text in _upstream_causes(device_id, faults)]
-        return ", ".join([check.message, *upstream])
+        own = [c for c in _own_causes(device_id, faults) if c[0] == "slow"]
+        extra = [text for _type, text in own + _upstream_causes(device_id, faults)]
+        return ", ".join([check.message, *extra])
     causes = _own_causes(device_id, faults) + _upstream_causes(device_id, faults)
     if check.status == "offline":
         causes = [c for c in causes if c[0] != "slow"]

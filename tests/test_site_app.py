@@ -85,6 +85,7 @@ def test_unreadable_file_hides_fault_controls_and_offers_overwrite(state):
     state.write_text("{not json", encoding="utf-8")
     at = run_app()
     assert at.error
+    assert len(at.error) == 1
     keys = {b.key for b in at.button}
     assert not [k for k in keys if k.startswith(("act-", "port-", "dev-"))]
     assert at.button(key="reset").label == "Overwrite unreadable file with a healthy site"
@@ -114,11 +115,12 @@ def test_timeout_button(state):
     assert at.button(key="dev-POS-01").label == "⚪ POS-01 unknown"
 
 
-def test_failed_action_shows_an_error(state):
+def test_failed_action_leaves_the_file_unchanged(state):
     at = click(run_app(), "dev-CAM-01")
     state.write_text("{not json", encoding="utf-8")
     click(at, "act-offline")
     assert at.error
+    assert len(at.error) == 1
     assert state.read_text(encoding="utf-8") == "{not json"
 
 

@@ -162,6 +162,9 @@ def test_site_model_loads_state_once(tmp_path, monkeypatch):
     "x",
     {"type": "port_down", "device": "SW-01"},
     {"type": "slow", "device": "CAM-01"},
+    {"type": "offlne", "device": "CAM-01"},
+    {"type": "port_down", "device": "SW-01", "port": True},
+    {"type": "slow", "device": "CAM-01", "ms": True},
 ])
 def test_malformed_fault_entry_sets_error(tmp_path, entry):
     path = tmp_path / "site_state.json"
@@ -177,6 +180,24 @@ def test_slow_switch_past_deadline_keeps_upstream_reason(tmp_path):
     assert cam.status == "unknown"
     assert "timed out" in cam.cause
     assert "switch SW-01 slow 2500ms" in cam.cause
+
+
+def test_unknown_device_keeps_its_own_slowness_in_the_cause(tmp_path):
+    m = model_for(tmp_path,
+                  lambda s: faults.inject_slow(s, "CAM-01", 1000),
+                  lambda s: faults.inject_slow(s, "SW-01", 1500))
+    cam = m.devices["CAM-01"]
+    assert cam.status == "unknown"
+    assert "timed out" in cam.cause
+    assert "slow 1000ms" in cam.cause
+    assert "switch SW-01 slow 1500ms" in cam.cause
+
+
+def test_timeout_fault_cause_is_unchanged(tmp_path):
+    m = model_for(tmp_path, lambda s: faults.inject_timeout(s, "CAM-01"))
+    cam = m.devices["CAM-01"]
+    assert cam.status == "unknown"
+    assert cam.cause == "poll timed out: CAM-01"
 
 
 def test_offline_device_cause_drops_slowness(tmp_path):

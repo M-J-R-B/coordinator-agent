@@ -46,6 +46,7 @@ def write_calls(tree: ast.AST) -> list[str]:
     return found
 
 
+# The broad name match is deliberate: a false positive fails loudly and costs a rename.
 def writer_attribute_calls(tree: ast.AST) -> list[str]:
     """Writers reached through a module attribute, e.g. state.save_state(...)."""
     return [f"{n.lineno}: .{n.attr}" for n in ast.walk(tree)
