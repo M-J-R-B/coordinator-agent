@@ -1,4 +1,8 @@
 """site_ui.view: the topology model, as the agent's check_device tool sees it."""
+import json
+
+import pytest
+
 from mock_site import faults
 from mock_site.state import empty_state, save_state
 from site_ui import view
@@ -68,6 +72,8 @@ def test_offline_switch_takes_its_devices_offline(tmp_path):
 def test_timeout_is_unknown(tmp_path):
     m = model_for(tmp_path, lambda s: faults.inject_timeout(s, "POS-02"))
     assert m.devices["POS-02"].status == "unknown"
+    assert m.devices["POS-02"].latency_ms is None
+    assert "timed out" in m.devices["POS-02"].cause
 
 
 def test_ports_show_cabling(tmp_path):
@@ -124,3 +130,61 @@ def test_fault_text():
     assert view.fault_text({"type": "port_down", "device": "SW-01", "port": 3}) == "port_down SW-01 port 3"
     assert view.fault_text({"type": "slow", "device": "CAM-06", "ms": 800}) == "slow CAM-06 800ms"
     assert view.fault_text({"type": "offline", "device": "CAM-03"}) == "offline CAM-03"
+
+
+def test_site_model_loads_state_once(tmp_path, monkeypatch):
+    calls = []
+    real = view.load_state
+
+    def counting(path):
+        calls.append(path)
+        return real(path)
+
+    path = tmp_path / "site_state.json"
+    save_state(path, empty_state())
+    monkeypatch.setattr(view, "load_state", counting)
+    view.site_model(path)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("entry", [
+    {"type": "offline"},
+    "x",
+    {"type": "port_down", "device": "SW-01"},
+    {"type": "slow", "device": "CAM-01"},
+])
+def test_malformed_fault_entry_sets_error(tmp_path, entry):
+    path = tmp_path / "site_state.json"
+    path.write_text(json.dumps({"site": "STORE-001", "faults": [entry]}), encoding="utf-8")
+    m = view.site_model(path)
+    assert m.error
+    assert m.devices == {}
+
+
+def test_slow_switch_past_deadline_keeps_upstream_reason(tmp_path):
+    m = model_for(tmp_path, lambda s: faults.inject_slow(s, "SW-01", 2500))
+    cam = m.devices["CAM-01"]
+    assert cam.status == "unknown"
+    assert "timed out" in cam.cause
+    assert "switch SW-01 slow 2500ms" in cam.cause
+
+
+def test_offline_device_cause_drops_slowness(tmp_path):
+    m = model_for(tmp_path,
+                  lambda s: faults.inject_offline(s, "CAM-01"),
+                  lambda s: faults.inject_slow(s, "SW-01", 800))
+    assert m.devices["CAM-01"].cause == "offline"
+
+
+def test_device_view_carries_its_faults(tmp_path):
+    m = model_for(tmp_path, lambda s: faults.inject_slow(s, "CAM-06", 800))
+    assert m.devices["CAM-06"].faults == [{"type": "slow", "device": "CAM-06", "ms": 800}]
+
+
+def test_ports_show_configuration_while_switch_is_offline(tmp_path):
+    m = model_for(tmp_path,
+                  lambda s: faults.inject_offline(s, "SW-01"),
+                  lambda s: faults.inject_port_down(s, "SW-01", 3))
+    assert m.ports["SW-01"][0].down is False
+    assert m.ports["SW-01"][2].down is True
+    assert m.devices["CAM-01"].status == "offline"

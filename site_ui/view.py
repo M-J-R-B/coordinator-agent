@@ -3,12 +3,16 @@
 No Streamlit and no writes. Status comes from mcp_server.checks.check_device,
 the same function behind the agent's check_device tool, so a device that is
 slow past the poll deadline shows as unknown here too.
+
+Ports show the cabling and injected port faults (what you control), even while
+the switch itself is unreachable; device dots show what a poll returns.
 """
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from mcp_server.checks import check_device
+from mcp_server.checks import check_state
+from mcp_server.models import DeviceCheck
 from mock_site.devices import INVENTORY, PORT_COUNT, PORT_MAP, SITE_ID, port_label
 from mock_site.poll import DEFAULT_LATENCY_MS
 from mock_site.state import DEFAULT_STATE_PATH, load_state
@@ -69,6 +73,18 @@ def _no_sleep(_seconds: float) -> None:
     """The panel must be instant; check_device's deadline still applies."""
 
 
+def _valid_fault(f) -> bool:
+    if not isinstance(f, dict):
+        return False
+    if not isinstance(f.get("type"), str) or not isinstance(f.get("device"), str):
+        return False
+    if f["type"] == "port_down":
+        return isinstance(f.get("port"), int)
+    if f["type"] == "slow":
+        return isinstance(f.get("ms"), int)
+    return True
+
+
 def _read(path: Path) -> tuple[dict | None, str | None]:
     try:
         state = load_state(path)
@@ -76,6 +92,9 @@ def _read(path: Path) -> tuple[dict | None, str | None]:
         return None, f"cannot read {path}: {exc}"
     if not isinstance(state, dict) or not isinstance(state.get("faults"), list):
         return None, f"cannot read {path}: no 'faults' list"
+    for f in state["faults"]:
+        if not _valid_fault(f):
+            return None, f"cannot read {path}: bad fault entry {f!r}"
     return state, None
 
 
@@ -88,31 +107,46 @@ def _down_ports(switch_id: str, faults: list[dict]) -> list[int]:
                   if f["type"] == "port_down" and f["device"] == switch_id)
 
 
-def _cause(device_id: str, check, faults: list[dict]) -> str:
-    if check.status == "unknown":
-        return check.message
-    parts = [_describe(f) for f in faults
-             if f["device"] == device_id and f["type"] != "port_down"]
+def _own_causes(device_id: str, faults: list[dict]) -> list[tuple[str, str]]:
+    causes = [(f["type"], _describe(f)) for f in faults
+              if f["device"] == device_id and f["type"] != "port_down"]
     down = _down_ports(device_id, faults)
     if down:
-        parts.append("ports down: " + ", ".join(map(str, down)))
-    if device_id in PORT_MAP:
-        switch_id, port = PORT_MAP[device_id]
-        if port in _down_ports(switch_id, faults):
-            parts.append(f"via {switch_id} port {port} down")
-        parts += [f"switch {switch_id} {_describe(f)}" for f in faults
-                  if f["device"] == switch_id and f["type"] in ("offline", "slow")]
-    return ", ".join(parts)
+        causes.append(("port_down", "ports down: " + ", ".join(map(str, down))))
+    return causes
 
 
-def _device(device_id: str, path: Path, faults: list[dict]) -> DeviceView:
-    check = check_device(device_id, path, sleep=_no_sleep)
+def _upstream_causes(device_id: str, faults: list[dict]) -> list[tuple[str, str]]:
+    if device_id not in PORT_MAP:
+        return []
+    switch_id, port = PORT_MAP[device_id]
+    causes = ([("port_down", f"via {switch_id} port {port} down")]
+              if port in _down_ports(switch_id, faults) else [])
+    return causes + [(f["type"], f"switch {switch_id} {_describe(f)}") for f in faults
+                     if f["device"] == switch_id and f["type"] in ("offline", "slow")]
+
+
+def _cause(device_id: str, check, faults: list[dict]) -> str:
+    """Why the device shows its status. Unknown keeps the upstream reason;
+    offline drops slowness (a device that never answered has no latency)."""
+    if check.status == "unknown":
+        upstream = [text for _type, text in _upstream_causes(device_id, faults)]
+        return ", ".join([check.message, *upstream])
+    causes = _own_causes(device_id, faults) + _upstream_causes(device_id, faults)
+    if check.status == "offline":
+        causes = [c for c in causes if c[0] != "slow"]
+    return ", ".join(text for _type, text in causes)
+
+
+def _device(device_id: str, state: dict) -> DeviceView:
+    faults = state["faults"]
+    check = check_state(device_id, state, sleep=_no_sleep)
     return DeviceView(
         device_id=device_id,
         type=INVENTORY[device_id].type,
         switch_id=PORT_MAP.get(device_id, (None, None))[0],
         status=check.status,
-        latency_ms=getattr(check, "latency_ms", None),
+        latency_ms=check.latency_ms if isinstance(check, DeviceCheck) else None,
         cause=_cause(device_id, check, faults),
         faults=[f for f in faults if f["device"] == device_id],
     )
@@ -131,7 +165,7 @@ def site_model(path: Path) -> SiteModel:
     faults = state["faults"]
     return SiteModel(
         site=state.get("site", SITE_ID),
-        devices={d: _device(d, Path(path), faults) for d in INVENTORY},
+        devices={d: _device(d, state) for d in INVENTORY},
         ports={sw: _ports(sw, faults) for sw in SWITCHES},
         faults=faults,
     )
