@@ -432,3 +432,19 @@ def test_cli_exits_2_on_schema_invalid_report(monkeypatch, capsys):
     monkeypatch.setattr(cli, "run_check", fake_run_check)
     assert cli.main(["postcheck"]) == 2
     assert "FAILED SCHEMA VALIDATION" in capsys.readouterr().out
+
+
+@pytest.mark.anyio
+async def test_postcheck_prompt_shows_the_coordinator_the_baseline(dirs):
+    before = healthy_site(CAM_05=offline("CAM-05"))
+    with_baseline(dirs, before)
+    fake = FakeQuery(script(before, release("all clear")))
+    await run("postcheck", fake, dirs)
+    assert "Offline before the work: CAM-05." in fake.calls[0]["prompt"]
+
+
+@pytest.mark.anyio
+async def test_precheck_prompt_has_no_baseline(dirs):
+    fake = FakeQuery(script(healthy_site()))
+    await run("precheck", fake, dirs)
+    assert "before the work" not in fake.calls[0]["prompt"]
