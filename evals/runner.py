@@ -29,6 +29,17 @@ class Result:
     error: str | None
     # Times the agent tried to release and the code-level gate refused.
     blocked_release_attempts: int = 0
+    # What the agent itself did at the end of the post-check, and its stated reason.
+    agent_action: str | None = None  # "released" | "escalated" | "none"
+    agent_reason: str | None = None
+
+
+def _action(agent_decision: dict) -> tuple[str, str | None]:
+    if agent_decision.get("released"):
+        return "released", agent_decision.get("release_reason")
+    if agent_decision.get("escalated"):
+        return "escalated", agent_decision.get("escalate_reason")
+    return "none", None
 
 
 def _dirs(workdir: Path, scenario_id: str) -> dict:
@@ -53,8 +64,12 @@ def _score(scenario: Scenario, pre: dict, post: dict) -> Result:
     expected = sorted(scenario.expected_blocking)
     error = post.get("error") or pre.get("error")
     decision = post.get("decision")
-    denials = (post.get("agent_decision") or {}).get("release_denials", [])
+    agent_decision = post.get("agent_decision") or {}
+    denials = agent_decision.get("release_denials", [])
+    action, reason = _action(agent_decision)
     return Result(
+        agent_action=action,
+        agent_reason=reason,
         scenario_id=scenario.id,
         expected_decision=scenario.expected_decision,
         actual_decision=decision,

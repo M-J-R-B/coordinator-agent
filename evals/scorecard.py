@@ -52,6 +52,9 @@ def _row(r: Result) -> str:
     actual = r.actual_decision or "none"
     if r.error:
         actual += f" (error: {_cell(r.error)})"
+    elif not r.correct and r.agent_action:
+        why = f": {_cell(r.agent_reason)}" if r.agent_reason else ""
+        actual += f" (agent {r.agent_action}{why})"
     return (f"| {r.scenario_id} | {_cell(_DESCRIPTIONS.get(r.scenario_id))} | "
             f"{r.expected_decision} | {actual} | {'yes' if r.correct else 'NO'} | "
             f"{r.blocked_release_attempts} | {_usd(r.cost_usd)} |")

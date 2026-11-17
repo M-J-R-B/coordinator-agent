@@ -109,3 +109,23 @@ async def test_release_attempts_the_gate_blocked_are_counted(tmp_path):
     r = await run_scenario(HOLD, model="m", workdir=tmp_path,
                            run_check_fn=fake("hold", ["CAM-03"], denials=["CAM-03 new_offline"]))
     assert r.correct and r.blocked_release_attempts == 1
+
+
+@pytest.mark.anyio
+async def test_what_the_agent_did_and_why_is_recorded(tmp_path):
+    async def escalates(kind, **kw):
+        rep = await fake("hold")(kind, **kw)
+        if kind == "postcheck":
+            rep["agent_decision"] = {"released": False, "escalated": True,
+                                     "escalate_reason": "CAM-07 is offline",
+                                     "release_reason": None, "release_denials": []}
+        return rep
+    r = await run_scenario(OK, model="m", workdir=tmp_path, run_check_fn=escalates)
+    assert not r.correct
+    assert (r.agent_action, r.agent_reason) == ("escalated", "CAM-07 is offline")
+
+
+@pytest.mark.anyio
+async def test_agent_that_made_no_decision_is_recorded_as_none(tmp_path):
+    r = await run_scenario(OK, model="m", workdir=tmp_path, run_check_fn=fake("hold"))
+    assert r.agent_action == "none" and r.agent_reason is None

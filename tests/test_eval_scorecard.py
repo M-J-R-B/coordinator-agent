@@ -88,3 +88,11 @@ def test_cli_rejects_an_unknown_scenario_id(monkeypatch, capsys):
     monkeypatch.setenv("PRECHECK_LIVE", "1")
     assert main(["--only", "no-such-scenario"]) == 2
     assert "no-such-scenario" in capsys.readouterr().err
+
+
+def test_markdown_shows_what_the_agent_did_on_a_wrong_answer():
+    wrong = res("d", "release", "hold")
+    wrong.agent_action, wrong.agent_reason = "escalated", "CAM-07 is offline"
+    md = render_markdown(summarize([wrong], model="m", generated_at="t"), [wrong])
+    row = next(line for line in md.splitlines() if line.startswith("| d |"))
+    assert "agent escalated: CAM-07 is offline" in row
