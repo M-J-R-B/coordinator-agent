@@ -1,18 +1,18 @@
 {
   "summary": {
     "model": "claude-haiku-5-5",
-    "generated_at": "2026-11-17T07:16:11+00:00",
+    "generated_at": "2026-11-17T07:30:33+00:00",
     "scenarios": 10,
-    "correct": 9,
-    "accuracy": 0.9,
+    "correct": 10,
+    "accuracy": 1.0,
     "false_releases": 0,
-    "false_holds": 1,
+    "false_holds": 0,
     "errors": 0,
     "blocked_release_attempts": 0,
     "blocking_matches": 10,
     "schema_valid": 10,
-    "total_cost_usd": 0.069862385,
-    "mean_cost_usd": 0.0069862385,
+    "total_cost_usd": 0.071255155,
+    "mean_cost_usd": 0.0071255155,
     "runs_without_cost": 0
   },
   "results": [
@@ -24,11 +24,13 @@
       "expected_blocking": [],
       "reported_blocking": [],
       "blocking_match": true,
-      "cost_usd": 0.00677174,
-      "num_turns": 12,
+      "cost_usd": 0.006483740000000001,
+      "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "released",
+      "agent_reason": "STORE-001 postcheck: all 14 devices checked fresh and online (CAM-01 to CAM-08, POS-01 to POS-04, SW-01 and SW-02). No switch ports down, no offline devices, no unknown results."
     },
     {
       "scenario_id": "camera-goes-offline",
@@ -42,11 +44,13 @@
         "CAM-03"
       ],
       "blocking_match": true,
-      "cost_usd": 0.006468635000000001,
+      "cost_usd": 0.006527995,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "Postcheck STORE-001: CAM-03 is offline. The baseline recorded no offline devices before the work, so this is a new failure, not pre-existing. The network-checker reported SW-01 and SW-02 online with no ports down, so no switch port explains it. All other devices (CAM-01, 02, 04-08, SW-01, SW-02, POS-01 to POS-04) are online. Technician should inspect CAM-03 and its cabling."
     },
     {
       "scenario_id": "pos-goes-offline",
@@ -60,11 +64,13 @@
         "POS-02"
       ],
       "blocking_match": true,
-      "cost_usd": 0.007107530000000001,
+      "cost_usd": 0.007127585,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "Postcheck STORE-001: POS-02 is offline now (check returned a clean 'did not answer'). Baseline recorded it as online before the work, so this is a new failure, not pre-existing. It is cabled to SW-02 port 2, but the network-checker reported all SW-02 ports up, so the cause is unexplained and port 2 needs direct verification. All 8 cameras and POS-01, POS-03, POS-04 are online; SW-01 and SW-02 are online with no ports down."
     },
     {
       "scenario_id": "camera-times-out",
@@ -78,11 +84,13 @@
         "CAM-05"
       ],
       "blocking_match": true,
-      "cost_usd": 0.007405915,
-      "num_turns": 11,
+      "cost_usd": 0.008192575,
+      "num_turns": 12,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "STORE-001 postcheck: CAM-05 status is unknown. Its check timed out on the first attempt and on the retry, so it is neither confirmed online nor offline. Its switch port (SW-01 port 5, labelled CAM-05) reports up, so the network data gives no cause. Re-check CAM-05 before closing the postcheck. All other devices (CAM-01 to CAM-04, CAM-06 to CAM-08, POS-01 to POS-04, SW-01, SW-02) are online, and no switch port is down."
     },
     {
       "scenario_id": "slow-but-online",
@@ -92,25 +100,29 @@
       "expected_blocking": [],
       "reported_blocking": [],
       "blocking_match": true,
-      "cost_usd": 0.006339325000000001,
-      "num_turns": 11,
+      "cost_usd": 0.007195230000000001,
+      "num_turns": 12,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "released",
+      "agent_reason": "STORE-001 postcheck: all 14 devices online on fresh checks (CAM-01 to CAM-08, SW-01, SW-02, POS-01 to POS-04). No switch ports down, no offline or unknown devices. Nothing was offline or unknown before the work, so there is nothing new to hold for. Note: POS-01 answered with 800 ms latency versus 5 ms for the other POS terminals; it is online, so it does not block release."
     },
     {
       "scenario_id": "already-offline-before",
       "expected_decision": "release",
-      "actual_decision": "hold",
-      "correct": false,
+      "actual_decision": "release",
+      "correct": true,
       "expected_blocking": [],
       "reported_blocking": [],
       "blocking_match": true,
-      "cost_usd": 0.0077093100000000005,
+      "cost_usd": 0.007159775,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "released",
+      "agent_reason": "STORE-001 postcheck: no new offline or unknown devices. 14 devices checked fresh: CAM-01 to CAM-08, SW-01, SW-02, POS-01 to POS-04. The only offline device is CAM-07, which was also offline before the work, so it is pre-existing and does not block release. All switch ports are up."
     },
     {
       "scenario_id": "pre-existing-plus-new",
@@ -124,11 +136,13 @@
         "POS-04"
       ],
       "blocking_match": true,
-      "cost_usd": 0.00724032,
+      "cost_usd": 0.007129385,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "STORE-001 postcheck: POS-04 is offline now, and it was online in the precheck baseline, so this is a new failure after the work. The check answered \"offline\" with no error; the cause is not known from the checks. Network-checker reports SW-01 and SW-02 with no ports down, but POS-04's switch port was not identified, so the cause is not confirmed. CAM-07 is still offline, but it was already offline before the work (pre-existing) and does not block release. Other results: CAM-01 to CAM-06 and CAM-08 online; POS-01 to POS-03 online; SW-01 and SW-02 online. Devices checked: 14."
     },
     {
       "scenario_id": "fixed-during-visit",
@@ -138,11 +152,13 @@
       "expected_blocking": [],
       "reported_blocking": [],
       "blocking_match": true,
-      "cost_usd": 0.00681439,
-      "num_turns": 12,
+      "cost_usd": 0.00697599,
+      "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "released",
+      "agent_reason": "STORE-001 postcheck: all 14 devices online (8 cameras CAM-01 to CAM-08, 2 switches SW-01 and SW-02, 4 POS terminals POS-01 to POS-04). No switch ports down. CAM-02, the only device offline before the work, is now online. No new offline or unknown devices."
     },
     {
       "scenario_id": "two-new-faults",
@@ -158,11 +174,13 @@
         "SW-02"
       ],
       "blocking_match": true,
-      "cost_usd": 0.007553315000000001,
+      "cost_usd": 0.007871865,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "STORE-001 postcheck: CAM-01 is offline now and was online before the work (baseline showed no offline devices), so it is a new offline device. SW-02 check returned unknown (timeout on first attempt and on retry), so its port states and the POS switch are unverified. SW-01 reports all 24 ports up, including port 1 that CAM-01 is cabled to, so the port is not the likely cause of CAM-01's offline state. Escalate for on-site follow-up. POS-01 to POS-04 and CAM-02 to CAM-08 are online."
     },
     {
       "scenario_id": "switch-port-down",
@@ -176,11 +194,13 @@
         "CAM-03"
       ],
       "blocking_match": true,
-      "cost_usd": 0.006451905000000001,
+      "cost_usd": 0.006591015,
       "num_turns": 11,
       "schema_valid": true,
       "error": null,
-      "blocked_release_attempts": 0
+      "blocked_release_attempts": 0,
+      "agent_action": "escalated",
+      "agent_reason": "Postcheck STORE-001: CAM-03 is offline now. It was online before the work (baseline), so this is a new offline device. The network-checker reports SW-01 port 3 down, which is the port CAM-03 is cabled to, so the likely cause is that port. All other cameras, POS terminals and both switches are online. Technician must stay on site to restore CAM-03 and SW-01 port 3."
     }
   ]
 }

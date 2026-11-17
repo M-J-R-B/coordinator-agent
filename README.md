@@ -41,13 +41,15 @@ flowchart TD
 
 The agent was run against ten fault scenarios on the simulated store (one run each, `claude-haiku-5-5`, 2026-11-17):
 
-- **Correct decisions:** 9 of 10
+- **Correct decisions:** 10 of 10
 - **False releases:** 0. This is by design: a report says "release" only if the release hook let it through.
-- **False holds:** 1. The agent held when the only offline device had already been offline before the visit.
+- **False holds:** 0
 - **Release attempts stopped by the code-level gate:** 0. The agent never tried to release when it should not have.
 - **Right devices named as blocking:** 10 of 10
 - **Reports that passed the schema:** 10 of 10
-- **Cost per visit (pre-check plus post-check):** $0.0070 on average
+- **Cost per visit (pre-check plus post-check):** $0.0071 on average
+
+**The first run scored 9 of 10, and that is how a design gap was found.** The agent held a technician when the only offline device had already been offline before the visit. The cause: the coordinator was told to treat pre-existing faults as non-blocking but was never shown the baseline, which only the release gate read. The post-check instructions now include the baseline's offline and unknown devices, and the same ten scenarios then scored 10 of 10. Both runs are kept in `evals/results/`, and the notes in the scorecard tell the whole story.
 
 Ten scenarios with one run each is a small sample: it shows the agent and the gate behave as intended on these cases, not a reliable accuracy figure.
 
