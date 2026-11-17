@@ -100,3 +100,35 @@ def test_clear_device_removes_all_its_faults():
 def test_reset_removes_everything():
     state = faults.inject_offline(empty_state(), "CAM-05")
     assert faults.reset(state)["faults"] == []
+
+
+def test_clear_port_removes_only_that_port():
+    state = faults.inject_port_down(empty_state(), "SW-01", 3)
+    state = faults.inject_port_down(state, "SW-01", 4)
+    state = faults.inject_slow(state, "SW-01", 800)
+    state = faults.clear_port(state, "SW-01", 3)
+    assert state["faults"] == [
+        {"type": "port_down", "device": "SW-01", "port": 4},
+        {"type": "slow", "device": "SW-01", "ms": 800},
+    ]
+
+
+def test_clear_port_on_up_port_is_noop():
+    state = faults.inject_offline(empty_state(), "SW-02")
+    assert faults.clear_port(state, "SW-02", 5)["faults"] == state["faults"]
+
+
+def test_clear_port_rejects_non_switch():
+    with pytest.raises(ValueError):
+        faults.clear_port(empty_state(), "CAM-01", 3)
+
+
+def test_clear_port_rejects_unknown_device():
+    with pytest.raises(ValueError):
+        faults.clear_port(empty_state(), "SW-09", 3)
+
+
+@pytest.mark.parametrize("port", [0, 25])
+def test_clear_port_rejects_bad_port(port):
+    with pytest.raises(ValueError):
+        faults.clear_port(empty_state(), "SW-01", port)

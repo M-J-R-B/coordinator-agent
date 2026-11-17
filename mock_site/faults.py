@@ -34,13 +34,24 @@ def inject_offline(state: dict, device_id: str) -> dict:
     return _set_condition(state, {"type": "offline", "device": device_id})
 
 
-def inject_port_down(state: dict, switch_id: str, port: int) -> dict:
+def _require_switch_port(switch_id: str, port: int) -> None:
     _require_device(switch_id)
     if INVENTORY[switch_id].type != "switch":
         raise ValueError(f"{switch_id} is not a switch")
     if not 1 <= port <= PORT_COUNT:
         raise ValueError(f"port must be 1-{PORT_COUNT}, got {port}")
+
+
+def inject_port_down(state: dict, switch_id: str, port: int) -> dict:
+    _require_switch_port(switch_id, port)
     return _add(state, {"type": "port_down", "device": switch_id, "port": port})
+
+
+def clear_port(state: dict, switch_id: str, port: int) -> dict:
+    """Plug the cable back in: remove only this port_down, keep the switch's condition."""
+    _require_switch_port(switch_id, port)
+    target = {"type": "port_down", "device": switch_id, "port": port}
+    return {**state, "faults": [f for f in state["faults"] if f != target]}
 
 
 def inject_slow(state: dict, device_id: str, ms: int) -> dict:
