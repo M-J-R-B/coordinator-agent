@@ -142,7 +142,10 @@ def test_site_model_loads_state_once(tmp_path, monkeypatch):
 
     path = tmp_path / "site_state.json"
     save_state(path, empty_state())
-    def forbidden(_path):
+    reloads = []
+
+    def forbidden(_path):  # check_device swallows exceptions, so record instead
+        reloads.append(_path)
         raise AssertionError("site_model must not reload the state per device")
 
     monkeypatch.setattr(view, "load_state", counting)
@@ -151,6 +154,7 @@ def test_site_model_loads_state_once(tmp_path, monkeypatch):
     assert m.error is None
     assert len(m.devices) == 14
     assert len(calls) == 1
+    assert reloads == []
 
 
 @pytest.mark.parametrize("entry", [
