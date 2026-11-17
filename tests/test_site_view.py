@@ -142,8 +142,14 @@ def test_site_model_loads_state_once(tmp_path, monkeypatch):
 
     path = tmp_path / "site_state.json"
     save_state(path, empty_state())
+    def forbidden(_path):
+        raise AssertionError("site_model must not reload the state per device")
+
     monkeypatch.setattr(view, "load_state", counting)
-    view.site_model(path)
+    monkeypatch.setattr("mcp_server.checks.load_state", forbidden)
+    m = view.site_model(path)
+    assert m.error is None
+    assert len(m.devices) == 14
     assert len(calls) == 1
 
 
