@@ -91,3 +91,53 @@ def test_unreadable_file_hides_fault_controls_and_offers_overwrite(state):
     at.checkbox(key="reset-confirm").check().run()
     click(at, "reset")
     assert load_state(state) == empty_state()
+    assert at.button(key="dev-CAM-01").label == "🟢 CAM-01"
+
+
+def test_cli_change_appears_on_next_run(state):
+    at = run_app()
+    actions.inject(state, "offline", "CAM-05")   # as the CLI would
+    at.run()
+    assert at.button(key="dev-CAM-05").label == "🔴 CAM-05"
+
+
+def test_selection_survives_a_rerun(state):
+    at = click(run_app(), "dev-CAM-02")
+    at.run()
+    assert at.button(key="act-offline")
+
+
+def test_timeout_button(state):
+    at = click(run_app(), "dev-POS-01")
+    click(at, "act-timeout")
+    assert load_state(state)["faults"] == [{"type": "timeout", "device": "POS-01"}]
+    assert at.button(key="dev-POS-01").label == "⚪ POS-01 unknown"
+
+
+def test_failed_action_shows_an_error(state):
+    at = click(run_app(), "dev-CAM-01")
+    state.write_text("{not json", encoding="utf-8")
+    click(at, "act-offline")
+    assert at.error
+    assert state.read_text(encoding="utf-8") == "{not json"
+
+
+def test_switch_clear_label_mentions_ports(state):
+    at = click(run_app(), "dev-SW-01")
+    assert at.button(key="act-clear").label == "Clear SW-01 (also brings its ports up)"
+
+
+def test_selecting_clears_the_last_message_and_disarms_reset(state):
+    at = click(run_app(), "dev-CAM-01")
+    click(at, "act-offline")
+    assert any("CAM-01 set offline" in s.value for s in at.success)
+    at.checkbox(key="reset-confirm").check().run()
+    click(at, "dev-CAM-02")
+    assert not at.success
+    assert at.checkbox(key="reset-confirm").value is False
+
+
+def test_selected_button_is_primary(state):
+    at = click(run_app(), "port-SW-01-3")
+    assert at.button(key="port-SW-01-3").proto.type == "primary"
+    assert at.button(key="port-SW-01-4").proto.type != "primary"

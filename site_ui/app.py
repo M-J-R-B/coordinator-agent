@@ -5,6 +5,7 @@ State: $PRECHECK_STATE_PATH, default <repo>/data/site_state.json (the file the a
 Every write goes through site_ui.actions, inside on_click callbacks.
 """
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))   # `streamlit run` puts site_ui/ first
@@ -20,10 +21,13 @@ REFRESH_SECONDS = 2
 
 def _select(selection: tuple) -> None:
     st.session_state["sel"] = selection
+    st.session_state.pop("last", None)
+    st.session_state["reset-confirm"] = False
 
 
 def _run(action, *args, **kwargs) -> None:
-    st.session_state["last"] = action(view.state_path(), *args, **kwargs)
+    result = action(view.state_path(), *args, **kwargs)
+    st.session_state["last"] = (time.strftime("%H:%M:%S"), result)
 
 
 def _slow(device_id: str) -> None:
@@ -45,9 +49,14 @@ def header(model: view.SiteModel) -> None:
                f" · refresh {REFRESH_SECONDS}s")
 
 
+def _kind(selection: tuple) -> str:
+    return "primary" if st.session_state.get("sel") == selection else "secondary"
+
+
 def device_button(where, d: view.DeviceView) -> None:
-    where.button(view.device_label(d), key=f"dev-{d.device_id}",
-                 on_click=_select, args=(("device", d.device_id),))
+    selection = ("device", d.device_id)
+    where.button(view.device_label(d), key=f"dev-{d.device_id}", type=_kind(selection),
+                 on_click=_select, args=(selection,))
 
 
 def switch_block(model: view.SiteModel, switch_id: str) -> None:
@@ -55,8 +64,9 @@ def switch_block(model: view.SiteModel, switch_id: str) -> None:
     ports = model.ports[switch_id]
     for row in (ports[:12], ports[12:]):
         for col, p in zip(st.columns(12), row):
+            selection = ("port", switch_id, p.port)
             col.button(view.port_text(p), key=f"port-{switch_id}-{p.port}",
-                       on_click=_select, args=(("port", switch_id, p.port),))
+                       type=_kind(selection), on_click=_select, args=(selection,))
     attached = [d for d in model.devices.values() if d.switch_id == switch_id]
     for col, d in zip(st.columns(len(attached)), attached):
         device_button(col, d)
@@ -106,10 +116,15 @@ def faults_box(model: view.SiteModel) -> None:
         st.markdown(f"- {view.fault_text(f)}")
 
 
-def last_result() -> None:
+def last_result(errors: bool = True) -> None:
     last = st.session_state.get("last")
-    if last:
-        (st.success if last.ok else st.error)(last.message)
+    if not last:
+        return
+    stamp, result = last
+    if result.ok:
+        st.success(f"{stamp} · {result.message}")
+    elif errors:
+        st.error(f"{stamp} · {result.message}")
 
 
 def reset_box(unreadable: bool) -> None:
@@ -125,7 +140,7 @@ def body() -> None:
     header(model)
     if model.error:
         st.error(model.error)
-        last_result()
+        last_result(errors=False)
         reset_box(unreadable=True)
         return
     left, right = st.columns([3, 1])
