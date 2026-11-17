@@ -36,7 +36,31 @@ def coordinator_prompt(decides: bool) -> str:
             + _FINISH.format(decision=" that includes your decision" if decides else ""))
 
 
-def task_prompt(kind: str, site: str) -> str:
+def _ids(baseline: dict, status: str) -> str:
+    ids = sorted(d for d, record in baseline.items() if record.get("status") == status)
+    return ", ".join(ids) if ids else "none"
+
+
+def _baseline_note(baseline: dict) -> str:
+    """What the precheck saw. Without this the coordinator cannot tell a
+    pre-existing fault from a new one: only the release gate read the baseline,
+    so the agent escalated devices that were already offline (SCORECARD.md).
+    Only the exceptions are listed; fourteen "online" lines would bury them."""
+    return (
+        "\n\nBaseline saved by the precheck, for comparison only:\n"
+        f"Offline before the work: {_ids(baseline, 'offline')}.\n"
+        f"Unknown before the work: {_ids(baseline, 'unknown')}.\n"
+        "Every other device was online before the work.\n"
+        "Check every device again now; never copy a status from this list. A device "
+        "that is offline now and was offline before the work is pre-existing: report "
+        "it, but it does not block a release."
+    )
+
+
+def task_prompt(kind: str, site: str, baseline: dict | None = None) -> str:
     stage = "before" if kind == "precheck" else "after"
-    return (f"Run the {kind} for site {site}: check every device {stage} "
-            f"the technician's work.")
+    prompt = (f"Run the {kind} for site {site}: check every device {stage} "
+              f"the technician's work.")
+    if kind == "postcheck" and baseline:
+        prompt += _baseline_note(baseline)
+    return prompt

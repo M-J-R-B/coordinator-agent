@@ -66,10 +66,12 @@ def build_hooks(recorder: Recorder, gate: Gate | None, log: EventLog,
     }
 
 
-async def _drive(options, kind: str, recorder: Recorder, query_fn) -> str | None:
+async def _drive(options, kind: str, recorder: Recorder, query_fn,
+                 baseline: dict | None = None) -> str | None:
     """Stream the run. SDK failures are returned as text, not raised."""
     try:
-        async for message in query_fn(prompt=task_prompt(kind, SITE_ID), options=options):
+        prompt = task_prompt(kind, SITE_ID, baseline)
+        async for message in query_fn(prompt=prompt, options=options):
             recorder.feed(message)
     except Exception as exc:  # CLI missing, auth, process crash...
         return f"{type(exc).__name__}: {exc}"
@@ -207,7 +209,7 @@ async def run_check(kind: str, *, model: str = DEFAULT_MODEL, state_path: Path |
     options = build_options(hooks=build_hooks(recorder, gate, log, transcripts, phase),
                             model=model, state_path=state_path,
                             decision_server=create_decision_server(decisions))
-    error = await _drive(options, kind, recorder, query_fn)
+    error = await _drive(options, kind, recorder, query_fn, baseline["devices"])
     agent = reports.agent_section(recorder.final, error, recorder.check_calls, model)
     report = reports.postcheck_report(
         check_id, SITE_ID, created_at, agent, baseline,
