@@ -27,7 +27,7 @@ down, slow response, and tool timeout.
 - MCP server (Python) exposing the device tools
 - pytest for tests
 - GitHub Actions for CI and Claude PR review
-- Streamlit for a read-only UI
+- Streamlit for a read-only report UI and a mock-site control panel
 - Site state and baselines stored as JSON files in `data/`
 
 Check the current Agent SDK and MCP docs before writing SDK code.
@@ -35,6 +35,7 @@ Do not rely on remembered API signatures.
 
 ## Structure
 - `mock_site/`  simulator and fault injection
+- `site_ui/`    control panel for the mock site (only `actions.py` writes)
 - `mcp_server/` device tools
 - `agent/`      coordinator, subagents, hooks
 - `schemas/`    JSON schemas for reports
@@ -74,6 +75,7 @@ Done:
 7. Report schema with validation and retry
 8. Claude PR review in GitHub Actions
 9. Read-only Streamlit UI
+10. Mock-site control panel (site_ui)
 
 Build one step at a time. Each step needs passing tests before the next.
 
@@ -84,4 +86,6 @@ Build one step at a time. Each step needs passing tests before the next.
 - Commands: `pytest` to test, `python -m mock_site` to run the simulator,
   `python -m mcp_server` to run the device tools over stdio,
   `python -m streamlit run ui/app.py --server.address localhost` for the
-  read-only UI (needs the `[ui]` extra, Python 3.11+).
+  read-only UI, and
+  `python -m streamlit run site_ui/app.py --server.address localhost --server.port 8502`
+  for the mock-site control panel (both need the `[ui]` extra, Python 3.11+).

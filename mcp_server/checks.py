@@ -59,6 +59,30 @@ def _to_check(reading: dict) -> DeviceCheck:
     )
 
 
+def _unknown_device(device_id: str) -> ToolFailure:
+    return _failure(device_id, "invalid_input", False,
+                    f"{device_id} is not a device at {SITE_ID}; use list_devices")
+
+
+def check_state(
+    device_id: str,
+    state: dict,
+    timeout_ms: int = DEFAULT_POLL_TIMEOUT_MS,
+    sleep: Sleep = time.sleep,
+) -> DeviceCheck | ToolFailure:
+    """Poll one device against an already-loaded state (one snapshot for many devices)."""
+    if device_id not in INVENTORY:
+        return _unknown_device(device_id)
+    try:
+        reading = poll_device(device_id, state, sleep=deadline_sleep(timeout_ms, sleep))
+    except DeviceTimeout as exc:
+        return _failure(device_id, "timeout", True, f"poll timed out: {exc}")
+    except Exception as exc:  # any other failure must still be unknown, never online
+        return _failure(device_id, "internal", False,
+                        f"check failed: {type(exc).__name__}: {exc}")
+    return _to_check(reading)
+
+
 def check_device(
     device_id: str,
     state_path: Path,
@@ -67,14 +91,10 @@ def check_device(
 ) -> DeviceCheck | ToolFailure:
     """Poll one device. Reloads the state file every call, so new faults show up."""
     if device_id not in INVENTORY:
-        return _failure(device_id, "invalid_input", False,
-                        f"{device_id} is not a device at {SITE_ID}; use list_devices")
+        return _unknown_device(device_id)
     try:
         state = load_state(state_path)
-        reading = poll_device(device_id, state, sleep=deadline_sleep(timeout_ms, sleep))
-    except DeviceTimeout as exc:
-        return _failure(device_id, "timeout", True, f"poll timed out: {exc}")
-    except Exception as exc:  # any other failure must still be unknown, never online
+    except Exception as exc:  # unreadable state is still unknown, never online
         return _failure(device_id, "internal", False,
                         f"check failed: {type(exc).__name__}: {exc}")
-    return _to_check(reading)
+    return check_state(device_id, state, timeout_ms, sleep)
